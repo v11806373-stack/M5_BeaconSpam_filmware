@@ -30,22 +30,18 @@ jobs:
         run: |
           pip install esptool
           
-          # Ищем файлы в папке сборки
           BOOTLOADER=$(find ./build -name "*.bootloader.bin" | head -n 1)
           PARTITIONS=$(find ./build -name "*.partitions.bin" | head -n 1)
           APP=$(find ./build -name "*.ino.bin" | head -n 1)
-          
-          # Ищем boot_app0.bin в системной папке ядра ESP32
           BOOT_APP0=$(find ~/.arduino15/packages/esp32 -name "boot_app0.bin" | head -n 1)
           
-          # Проверяем, что все файлы найдены (для отладки)
           echo "Bootloader: $BOOTLOADER"
           echo "Partitions: $PARTITIONS"
           echo "Boot App0: $BOOT_APP0"
           echo "App: $APP"
           
-          # Склеиваем (используем новые команды без .py и с дефисами)
-          esptool merge-bin -o ./build/merged_firmware.bin --flash-mode dio --flash-freq 80m --flash-size 8MB 0x0 $BOOTLOADER 0x8000 $PARTITIONS 0xe000 $BOOT_APP0 0x10000 $APP
+          # ВОТ ЗДЕСЬ ДОБАВЛЕН --chip esp32s3
+          esptool --chip esp32s3 merge-bin -o ./build/merged_firmware.bin --flash-mode dio --flash-freq 80m --flash-size 8MB 0x0 $BOOTLOADER 0x8000 $PARTITIONS 0xe000 $BOOT_APP0 0x10000 $APP
           
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
