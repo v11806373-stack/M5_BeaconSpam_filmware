@@ -24,10 +24,21 @@ jobs:
           
       - name: Compile Sketch
         run: |
+          # Компилируем скетч. Имя файла (M5_BeaconSpam_filmware.ino) должно совпадать с папкой!
           arduino-cli compile --fqbn esp32:esp32:esp32s3:PartitionScheme=huge_app --output-dir ./build .
+          
+      - name: Merge Bin Files
+        run: |
+          # Устанавливаем esptool для склейки
+          pip install esptool
+          
+          # Склеиваем все файлы в один merged_firmware.bin (адрес 0x0)
+          esptool.py --chip esp32s3 merge_bin -o ./build/merged_firmware.bin --flash_mode dio --flash_freq 80m --flash_size 8MB 0x0 ./build/M5_BeaconSpam_filmware.ino.bootloader.bin 0x8000 ./build/M5_BeaconSpam_filmware.ino.partitions.bin 0xe000 ./build/boot_app0.bin 0x10000 ./build/M5_BeaconSpam_filmware.ino.bin
           
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: firmware-bin
-          path: ./build/*.bin
+          path: |
+            ./build/merged_firmware.bin
+            ./build/*.bin
