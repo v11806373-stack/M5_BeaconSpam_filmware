@@ -16,7 +16,7 @@ const byte DNS_PORT = 53;
 bool isSpamming = false;
 bool isTvKilling = false;
 bool isDeauthing = false;
-bool isEvilPortalActive = true; // Автозапуск портала при старте
+bool isEvilPortalActive = true; 
 unsigned long lastBeaconTime = 0;
 unsigned long lastDeauthTime = 0;
 int packetCount = 0;
@@ -91,7 +91,7 @@ const char* spam_ssids[] = {
 };
 const int num_ssids = sizeof(spam_ssids) / sizeof(spam_ssids[0]);
 
-// ================= БАЗА КОДОВ ТВ (NA и EU) =================
+// ================= БАЗА КОДОВ ТВ =================
 struct IrCode {
   uint32_t freq;
   uint8_t numPairs;
@@ -139,37 +139,27 @@ const char index_html[] PROGMEM = R"rawliteral(
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
     body { font-family: 'Courier New', Courier, monospace; background: #000; color: #fff; overflow: hidden; }
     #app { height: 100vh; display: flex; flex-direction: column; position: relative; overflow: hidden; }
-    
-    /* Анимация листания */
-    .page { position: absolute; top: 0; left: 0; width: 100%; height: 100%; padding: 20px 20px 80px 20px; display: flex; flex-direction: column; transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease; overflow-y: auto; background: #000; }
+    .page { position: absolute; top: 0; left: 0; width: 100%; height: 100%; padding: 20px 20px 80px 20px; display: flex; flex-direction: column; transition: transform 0.3s ease, opacity 0.3s ease; overflow-y: auto; background: #000; }
     .page.hidden { transform: translateX(100%); opacity: 0; pointer-events: none; }
     .page.active { transform: translateX(0); opacity: 1; }
-    
     h1 { font-size: 24px; color: #fff; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; border-bottom: 2px solid #fff; padding-bottom: 10px; font-weight: bold; }
     h2 { font-size: 18px; color: #fff; margin-bottom: 15px; margin-top: 20px; text-transform: uppercase; border-bottom: 1px solid #555; padding-bottom: 5px; }
-    
     .menu-btn { background: #000; border: 2px solid #fff; border-radius: 0; padding: 20px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: 0.1s; color: #fff; }
     .menu-btn:active { background: #fff; color: #000; }
     .menu-btn:active .text, .menu-btn:active .icon, .menu-btn:active .arrow { color: #000; }
     .menu-btn .icon { font-size: 32px; margin-right: 15px; }
     .menu-btn .text { font-size: 20px; font-weight: bold; flex: 1; text-align: left; letter-spacing: 1px; }
     .menu-btn .arrow { font-size: 24px; }
-    
-    button { background: #000; color: #fff; border: 2px solid #fff; padding: 15px; border-radius: 0; width: 100%; font-weight: bold; font-size: 16px; cursor: pointer; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; font-family: inherit; transition: 0.1s; }
+    button { background: #000; color: #fff; border: 2px solid #fff; padding: 15px; border-radius: 0; width: 100%; font-weight: bold; font-size: 16px; cursor: pointer; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; font-family: inherit; }
     button:active { background: #fff; color: #000; }
-    
     select { padding: 12px; width: 100%; margin-bottom: 15px; background: #000; color: #fff; border: 2px solid #fff; border-radius: 0; font-size: 16px; outline: none; font-family: inherit; text-transform: uppercase; appearance: none; }
-    
     #backBtn { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; color: #000; border: none; padding: 20px; font-size: 18px; font-weight: bold; cursor: pointer; z-index: 100; border-radius: 0; display: none; text-transform: uppercase; font-family: inherit; }
     #backBtn:active { background: #555; }
-    
     .status-box { padding: 15px; background: #000; border: 2px solid #fff; margin-bottom: 15px; font-size: 14px; text-transform: uppercase; }
-    
     #scan-results { max-height: 250px; overflow-y: auto; background: #000; border: 2px solid #fff; padding: 10px; margin-bottom: 15px; text-align: left; font-size: 13px; }
     .net-item { padding: 10px; border-bottom: 1px dashed #555; cursor: pointer; text-transform: uppercase; }
     .net-item:active { background: #fff; color: #000; }
     .net-item.selected { background: #fff; color: #000; font-weight: bold; border-bottom: 2px solid #fff; }
-    
     #logs { background: #000; color: #fff; font-family: monospace; font-size: 12px; padding: 10px; border: 2px solid #fff; height: 200px; overflow-y: auto; margin-bottom: 15px; white-space: pre-wrap; }
     .hidden { display: none !important; }
     .btn-row { display: flex; gap: 10px; }
@@ -525,8 +515,7 @@ void sendDeauth() {
 
 // ================= ИК ОТПРАВКА =================
 void sendRawCode(const uint16_t *times, const uint8_t *codes, int numPairs, int bitsPerIndex, int freq) {
-  ledcSetup(0, freq, 8);
-  ledcAttachPin(IR_PIN, 0);
+  ledcAttach(IR_PIN, freq, 8);
   
   int bitPos = 0;
   for (int i = 0; i < numPairs; i++) {
@@ -538,9 +527,9 @@ void sendRawCode(const uint16_t *times, const uint8_t *codes, int numPairs, int 
     }
     
     if (val < 8) {
-      ledcWrite(0, 128);
+      ledcWrite(IR_PIN, 128);
       delayMicroseconds(times[val * 2]);
-      ledcWrite(0, 0);
+      ledcWrite(IR_PIN, 0);
       delayMicroseconds(times[val * 2 + 1]);
     }
   }
@@ -746,8 +735,7 @@ void setup() {
   if(!SPIFFS.begin(true)) Serial.println("SPIFFS Error");
   loadLogs();
 
-  ledcSetup(0, 38000, 8);
-  ledcAttachPin(IR_PIN, 0);
+  ledcAttach(IR_PIN, 38000, 8);
 
   WiFi.mode(WIFI_AP);
   WiFi.softAP("M5_Bruce");
@@ -758,7 +746,6 @@ void setup() {
 
   setupServer();
   
-  // Автозапуск портала
   if (isEvilPortalActive) {
     dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
   }
